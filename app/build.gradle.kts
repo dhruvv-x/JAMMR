@@ -57,6 +57,7 @@ dependencies {
     // Firebase
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
+    implementation(libs.firebase.firestore)
 
     // Google Sign-In via Credential Manager
     implementation(libs.androidx.credentials)
@@ -69,10 +70,10 @@ dependencies {
 
     // Image loading
     implementation(libs.glide)
+    implementation(libs.androidx.cardview)
+    implementation(libs.androidx.swiperefreshlayout)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-    implementation(libs.androidx.cardview)
-    implementation(libs.androidx.swiperefreshlayout)
 }

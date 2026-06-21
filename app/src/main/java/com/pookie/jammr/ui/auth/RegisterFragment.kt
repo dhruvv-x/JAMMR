@@ -61,7 +61,7 @@ class RegisterFragment : Fragment() {
                 return@setOnClickListener
             }
 
-            authViewModel.registerWithEmail(email, password)
+            authViewModel.registerWithEmail(name, email, password)
         }
 
         view.findViewById<android.widget.TextView>(R.id.tvGoToLogin).setOnClickListener {

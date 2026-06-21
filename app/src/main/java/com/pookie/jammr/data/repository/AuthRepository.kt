@@ -6,27 +6,34 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.FirebaseFirestore
+import com.pookie.jammr.data.model.User
 import kotlinx.coroutines.tasks.await
 
 class AuthRepository {
 
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
+    private val db: FirebaseFirestore = FirebaseFirestore.getInstance()
 
     val currentUser: FirebaseUser? get() = auth.currentUser
 
     suspend fun loginWithEmail(email: String, password: String): Result<FirebaseUser> {
         return try {
             val result = auth.signInWithEmailAndPassword(email, password).await()
-            Result.success(result.user!!)
+            val user = result.user!!
+            createUserProfileIfNeeded(user.uid, user.displayName ?: "", user.email ?: email, user.photoUrl?.toString())
+            Result.success(user)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    suspend fun registerWithEmail(email: String, password: String): Result<FirebaseUser> {
+    suspend fun registerWithEmail(name: String, email: String, password: String): Result<FirebaseUser> {
         return try {
             val result = auth.createUserWithEmailAndPassword(email, password).await()
-            Result.success(result.user!!)
+            val user = result.user!!
+            createUserProfileIfNeeded(user.uid, name, email, null)
+            Result.success(user)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -42,12 +49,35 @@ class AuthRepository {
                     googleIdTokenCredential.idToken, null
                 )
                 val result = auth.signInWithCredential(firebaseCredential).await()
-                Result.success(result.user!!)
+                val user = result.user!!
+                createUserProfileIfNeeded(
+                    uid = user.uid,
+                    name = googleIdTokenCredential.displayName ?: user.displayName ?: "",
+                    email = user.email ?: "",
+                    photoUrl = googleIdTokenCredential.profilePictureUri?.toString() ?: user.photoUrl?.toString()
+                )
+                Result.success(user)
             } else {
                 Result.failure(Exception("Invalid credential type"))
             }
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    private suspend fun createUserProfileIfNeeded(uid: String, name: String, email: String, photoUrl: String?) {
+        val userRef = db.collection("users").document(uid)
+        val snapshot = userRef.get().await()
+        if (!snapshot.exists()) {
+            val newUser = User(
+                uid = uid,
+                name = name,
+                email = email,
+                photoUrl = photoUrl,
+                bio = "",
+                createdAt = System.currentTimeMillis()
+            )
+            userRef.set(newUser).await()
         }
     }
 

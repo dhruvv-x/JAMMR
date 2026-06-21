@@ -4,14 +4,17 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.pookie.jammr.R
+import com.pookie.jammr.viewmodel.AuthViewModel
 import com.pookie.jammr.viewmodel.MusicShelf
 import com.pookie.jammr.viewmodel.MusicState
 import com.pookie.jammr.viewmodel.MusicViewModel
@@ -20,8 +23,10 @@ import java.util.Calendar
 class HomeFragment : Fragment() {
 
     private val musicViewModel: MusicViewModel by viewModels()
+    private val authViewModel: AuthViewModel by viewModels()
 
     private lateinit var tvGreeting: TextView
+    private lateinit var btnLogout: ImageButton
     private lateinit var shelvesContainer: ViewGroup
     private lateinit var swipeRefresh: SwipeRefreshLayout
 
@@ -46,10 +51,16 @@ class HomeFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         tvGreeting = view.findViewById(R.id.tvGreeting)
+        btnLogout = view.findViewById(R.id.btnLogout)
         shelvesContainer = view.findViewById(R.id.shelvesContainer)
         swipeRefresh = view.findViewById(R.id.swipeRefresh)
 
         tvGreeting.text = buildGreeting()
+
+        btnLogout.setOnClickListener {
+            authViewModel.signOut()
+            findNavController().navigate(R.id.action_homeFragment_to_loginFragment)
+        }
 
         buildShelfSections()
         observeShelfStates()

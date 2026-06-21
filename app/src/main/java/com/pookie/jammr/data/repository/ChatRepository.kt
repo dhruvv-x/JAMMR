@@ -138,4 +138,24 @@ class ChatRepository {
             Result.failure(e)
         }
     }
+
+    /**
+     * Looks up a user by their exact email address — used by the
+     * temporary "start a new chat by email" flow until a real Friend
+     * System exists. Returns null (inside a successful Result) if no
+     * user with that email is found, distinct from a query failure.
+     */
+    suspend fun findUserByEmail(email: String): Result<User?> {
+        return try {
+            val snapshot = db.collection("users")
+                .whereEqualTo("email", email)
+                .limit(1)
+                .get()
+                .await()
+            val user = snapshot.documents.firstOrNull()?.toObject(User::class.java)
+            Result.success(user)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

@@ -13,14 +13,36 @@ import kotlinx.coroutines.launch
 
 sealed class ChatListState {
     object Loading : ChatListState()
-    data class Success(val chats: List<Chat>) : ChatListState()
+    data class Success(val chats: List<ChatPreview>) : ChatListState()
     data class Error(val message: String) : ChatListState()
 }
+
+/**
+ * A Chat document enriched with the OTHER participant's profile, resolved
+ * relative to whoever is currently viewing the list. The raw Chat model
+ * doesn't carry a fixed "other user" — that depends on who's looking.
+ */
+data class ChatPreview(
+    val chatId: String,
+    val otherUserId: String,
+    val otherUserName: String,
+    val otherUserPhotoUrl: String?,
+    val lastMessage: String,
+    val lastMessageTimestamp: Long
+)
 
 sealed class MessagesState {
     object Loading : MessagesState()
     data class Success(val messages: List<Message>) : MessagesState()
     data class Error(val message: String) : MessagesState()
+}
+
+sealed class UserSearchState {
+    object Idle : UserSearchState()
+    object Loading : UserSearchState()
+    data class Found(val user: User) : UserSearchState()
+    object NotFound : UserSearchState()
+    data class Error(val message: String) : UserSearchState()
 }
 
 class ChatViewModel : ViewModel() {
@@ -29,6 +51,10 @@ class ChatViewModel : ViewModel() {
 
     private var chatsListener: ListenerRegistration? = null
     private var messagesListener: ListenerRegistration? = null
+
+    // Avoids re-fetching the same user's profile repeatedly as the chat list
+    // updates in real time (e.g. every time a new message arrives).
+    private val userProfileCache = mutableMapOf<String, User>()
 
     private val _chatListState = MutableLiveData<ChatListState>()
     val chatListState: LiveData<ChatListState> = _chatListState
@@ -39,15 +65,44 @@ class ChatViewModel : ViewModel() {
     private val _currentChatId = MutableLiveData<String>()
     val currentChatId: LiveData<String> = _currentChatId
 
+    private val _userSearchState = MutableLiveData<UserSearchState>(UserSearchState.Idle)
+    val userSearchState: LiveData<UserSearchState> = _userSearchState
+
     /** Starts listening for the current user's chat list (Chat List screen). */
     fun loadUserChats(currentUserId: String) {
         _chatListState.value = ChatListState.Loading
         chatsListener?.remove()
         chatsListener = repository.listenForUserChats(
             currentUserId = currentUserId,
-            onChatsChanged = { chats -> _chatListState.value = ChatListState.Success(chats) },
+            onChatsChanged = { chats -> enrichAndEmitChats(chats, currentUserId) },
             onError = { e -> _chatListState.value = ChatListState.Error(e.message ?: "Failed to load chats") }
         )
+    }
+
+    /**
+     * Resolves each chat's "other participant" and fetches their profile
+     * (cached) before exposing the list to the UI.
+     */
+    private fun enrichAndEmitChats(chats: List<Chat>, currentUserId: String) {
+        viewModelScope.launch {
+            val previews = chats.map { chat ->
+                val otherUserId = chat.participants.firstOrNull { it != currentUserId } ?: ""
+                val otherUser = userProfileCache[otherUserId] ?: run {
+                    val fetched = repository.getUserProfile(otherUserId).getOrNull()
+                    if (fetched != null) userProfileCache[otherUserId] = fetched
+                    fetched
+                }
+                ChatPreview(
+                    chatId = chat.chatId,
+                    otherUserId = otherUserId,
+                    otherUserName = otherUser?.name?.takeIf { it.isNotBlank() } ?: "Unknown user",
+                    otherUserPhotoUrl = otherUser?.photoUrl,
+                    lastMessage = chat.lastMessage,
+                    lastMessageTimestamp = chat.lastMessageTimestamp
+                )
+            }
+            _chatListState.value = ChatListState.Success(previews)
+        }
     }
 
     /** Opens (or creates) a chat with another user, then starts listening for its messages. */
@@ -94,6 +149,33 @@ class ChatViewModel : ViewModel() {
     suspend fun fetchUserProfile(uid: String): User? {
         val result = repository.getUserProfile(uid)
         return result.getOrNull()
+    }
+
+    /**
+     * Looks up a user by email for the "start new chat" flow.
+     * Trims and lowercases the input since emails are case-insensitive
+     * and stray whitespace from copy-paste is common.
+     */
+    fun searchUserByEmail(email: String) {
+        val normalized = email.trim().lowercase()
+        if (normalized.isEmpty()) {
+            _userSearchState.value = UserSearchState.Error("Enter an email address")
+            return
+        }
+        _userSearchState.value = UserSearchState.Loading
+        viewModelScope.launch {
+            val result = repository.findUserByEmail(normalized)
+            _userSearchState.value = when {
+                result.isFailure -> UserSearchState.Error(result.exceptionOrNull()?.message ?: "Search failed")
+                result.getOrNull() == null -> UserSearchState.NotFound
+                else -> UserSearchState.Found(result.getOrNull()!!)
+            }
+        }
+    }
+
+    /** Resets the search state — call after handling a Found/NotFound/Error result. */
+    fun clearUserSearchState() {
+        _userSearchState.value = UserSearchState.Idle
     }
 
     /** Call from Fragment's onDestroyView() to avoid leaking Firestore listeners. */

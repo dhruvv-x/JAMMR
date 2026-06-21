@@ -27,10 +27,10 @@ class HomeFragment : Fragment() {
 
     private lateinit var tvGreeting: TextView
     private lateinit var btnLogout: ImageButton
+    private lateinit var btnChats: ImageButton
     private lateinit var shelvesContainer: ViewGroup
     private lateinit var swipeRefresh: SwipeRefreshLayout
 
-    // Holds references to each shelf's views, keyed by shelf id, so we can update them individually.
     private val shelfViewsMap = mutableMapOf<String, ShelfViews>()
 
     private data class ShelfViews(
@@ -52,6 +52,7 @@ class HomeFragment : Fragment() {
 
         tvGreeting = view.findViewById(R.id.tvGreeting)
         btnLogout = view.findViewById(R.id.btnLogout)
+        btnChats = view.findViewById(R.id.btnChats)
         shelvesContainer = view.findViewById(R.id.shelvesContainer)
         swipeRefresh = view.findViewById(R.id.swipeRefresh)
 
@@ -60,6 +61,10 @@ class HomeFragment : Fragment() {
         btnLogout.setOnClickListener {
             authViewModel.signOut()
             findNavController().navigate(R.id.action_homeFragment_to_loginFragment)
+        }
+
+        btnChats.setOnClickListener {
+            findNavController().navigate(R.id.action_homeFragment_to_chatListFragment)
         }
 
         buildShelfSections()
@@ -81,10 +86,6 @@ class HomeFragment : Fragment() {
         }
     }
 
-    /**
-     * Inflates one section_music_shelf.xml per shelf defined in MusicViewModel.homeShelves,
-     * adds it to the container, and stores references for later state updates.
-     */
     private fun buildShelfSections() {
         val inflater = LayoutInflater.from(requireContext())
 
@@ -99,7 +100,7 @@ class HomeFragment : Fragment() {
             tvTitle.text = shelf.displayTitle
 
             val adapter = SongAdapter(emptyList()) { song ->
-                // TODO: navigate to Song Detail screen — built in a later step
+                // TODO: navigate to Song Detail / share to chat
             }
             recyclerView.layoutManager = LinearLayoutManager(
                 requireContext(), LinearLayoutManager.HORIZONTAL, false

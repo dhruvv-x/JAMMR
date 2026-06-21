@@ -59,6 +59,32 @@
             app:destination="@id/loginFragment"
             app:popUpTo="@id/homeFragment"
             app:popUpToInclusive="true" />
+        <action
+            android:id="@+id/action_homeFragment_to_chatListFragment"
+            app:destination="@id/chatListFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/chatListFragment"
+        android:name="com.pookie.jammr.ui.chat.ChatListFragment"
+        android:label="ChatListFragment"
+        tools:layout="@layout/fragment_chat_list">
+        <action
+            android:id="@+id/action_chatListFragment_to_chatThreadFragment"
+            app:destination="@id/chatThreadFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/chatThreadFragment"
+        android:name="com.pookie.jammr.ui.chat.ChatThreadFragment"
+        android:label="ChatThreadFragment"
+        tools:layout="@layout/fragment_chat_thread">
+        <argument
+            android:name="otherUserId"
+            app:argType="string" />
+        <argument
+            android:name="otherUserName"
+            app:argType="string" />
     </fragment>
 
 </navigation>

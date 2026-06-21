@@ -67,7 +67,12 @@ dependencies {
     implementation(libs.retrofit.core)
     implementation(libs.retrofit.gson)
 
+    // Image loading
+    implementation(libs.glide)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    implementation(libs.androidx.cardview)
+    implementation(libs.androidx.swiperefreshlayout)
 }

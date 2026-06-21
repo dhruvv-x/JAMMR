@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:layout_marginTop="28dp">
+
+    <TextView
+        android:id="@+id/tvShelfTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#FFFFFF"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:layout_marginStart="20dp"
+        android:layout_marginBottom="14dp" />
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <ProgressBar
+            android:id="@+id/shelfProgressBar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginStart="20dp" />
+
+        <TextView
+            android:id="@+id/tvShelfError"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Couldn't load this section"
+            android:textColor="#666666"
+            android:textSize="13sp"
+            android:layout_marginStart="20dp"
+            android:visibility="gone" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvShelfSongs"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="20dp"
+            android:paddingEnd="8dp"
+            android:clipToPadding="false"
+            android:visibility="gone" />
+
+    </FrameLayout>
+
+</LinearLayout>

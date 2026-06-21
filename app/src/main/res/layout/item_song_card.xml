@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="130dp"
+    android:layout_height="wrap_content"
+    android:layout_marginEnd="14dp">
+
+    <androidx.cardview.widget.CardView
+        android:id="@+id/cardArt"
+        android:layout_width="130dp"
+        android:layout_height="130dp"
+        app:cardCornerRadius="10dp"
+        app:cardElevation="4dp"
+        app:cardBackgroundColor="#1A1A1A">
+
+        <ImageView
+            android:id="@+id/ivArtwork"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:contentDescription="Album artwork" />
+
+    </androidx.cardview.widget.CardView>
+
+    <TextView
+        android:id="@+id/tvTrackName"
+        android:layout_width="130dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:maxLines="1"
+        android:ellipsize="end"
+        app:layout_constraintTop_toBottomOf="@id/cardArt"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <TextView
+        android:id="@+id/tvArtistName"
+        android:layout_width="130dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:textColor="#888888"
+        android:textSize="12sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        app:layout_constraintTop_toBottomOf="@id/tvTrackName"
+        app:layout_constraintStart_toStartOf="parent" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

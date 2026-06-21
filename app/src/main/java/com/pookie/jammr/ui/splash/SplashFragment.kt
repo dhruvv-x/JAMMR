@@ -8,6 +8,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.navigation.fragment.findNavController
+import com.google.firebase.auth.FirebaseAuth
 import com.pookie.jammr.R
 
 class SplashFragment : Fragment() {
@@ -24,7 +25,13 @@ class SplashFragment : Fragment() {
 
         Handler(Looper.getMainLooper()).postDelayed({
             if (isAdded) {
-                findNavController().navigate(R.id.action_splashFragment_to_loginFragment)
+                val currentUser = FirebaseAuth.getInstance().currentUser
+                if (currentUser != null) {
+                    // Already signed in from a previous session — skip Login entirely.
+                    findNavController().navigate(R.id.action_splashFragment_to_homeFragment)
+                } else {
+                    findNavController().navigate(R.id.action_splashFragment_to_loginFragment)
+                }
             }
         }, 2000)
     }

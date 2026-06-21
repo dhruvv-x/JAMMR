@@ -10,6 +10,7 @@ interface ITunesApiService {
     suspend fun searchSongs(
         @Query("term") term: String,
         @Query("entity") entity: String = "song",
-        @Query("limit") limit: Int = 25
+        @Query("limit") limit: Int = 25,
+        @Query("country") country: String = "IN"
     ): ITunesSearchResponse
 }

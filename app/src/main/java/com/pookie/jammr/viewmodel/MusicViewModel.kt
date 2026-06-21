@@ -14,26 +14,55 @@ sealed class MusicState {
     data class Error(val message: String) : MusicState()
 }
 
+/**
+ * Represents one horizontal "shelf" on the Home screen, e.g. Bollywood, Hollywood, Punjabi.
+ * displayTitle = what's shown to the user, searchTerm = what's sent to iTunes Search API.
+ */
+data class MusicShelf(
+    val id: String,
+    val displayTitle: String,
+    val searchTerm: String
+)
+
 class MusicViewModel : ViewModel() {
 
     private val repository = MusicRepository()
 
-    private val _trendingState = MutableLiveData<MusicState>()
-    val trendingState: LiveData<MusicState> = _trendingState
+    // Default shelves shown on Home. Easy to extend later without touching Fragment code.
+    val homeShelves = listOf(
+        MusicShelf("bollywood", "🔥 Trending Bollywood", "bollywood hits 2025"),
+        MusicShelf("hollywood", "🌍 Trending Hollywood", "top pop hits 2025"),
+        MusicShelf("punjabi", "🎧 Punjabi Hits", "punjabi hits 2025")
+    )
+
+    private val _shelfStates = MutableLiveData<Map<String, MusicState>>(emptyMap())
+    val shelfStates: LiveData<Map<String, MusicState>> = _shelfStates
 
     private val _searchState = MutableLiveData<MusicState>()
     val searchState: LiveData<MusicState> = _searchState
 
-    fun loadTrendingSongs(term: String = "bollywood hits") {
-        _trendingState.value = MusicState.Loading
-        viewModelScope.launch {
-            val result = repository.searchSongs(term)
-            _trendingState.value = if (result.isSuccess) {
-                MusicState.Success(result.getOrNull() ?: emptyList())
-            } else {
-                MusicState.Error(result.exceptionOrNull()?.message ?: "Failed to load trending songs")
+    /**
+     * Loads all Home shelves in parallel (each shelf is independent —
+     * one failing doesn't block the others from loading/showing).
+     */
+    fun loadHomeShelves() {
+        homeShelves.forEach { shelf ->
+            updateShelfState(shelf.id, MusicState.Loading)
+            viewModelScope.launch {
+                val result = repository.searchSongs(shelf.searchTerm)
+                val newState = if (result.isSuccess) {
+                    MusicState.Success(result.getOrNull() ?: emptyList())
+                } else {
+                    MusicState.Error(result.exceptionOrNull()?.message ?: "Failed to load")
+                }
+                updateShelfState(shelf.id, newState)
             }
         }
+    }
+
+    private fun updateShelfState(shelfId: String, state: MusicState) {
+        val current = _shelfStates.value ?: emptyMap()
+        _shelfStates.value = current + (shelfId to state)
     }
 
     fun searchSongs(query: String) {

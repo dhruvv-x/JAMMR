@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "766305069007",
+    "project_id": "jammr-ea07a",
+    "storage_bucket": "jammr-ea07a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:766305069007:android:4105e41034d80374f754ba",
+        "android_client_info": {
+          "package_name": "com.pookie.jammr"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCmpeWP5a4VL3eIyvF4EpiwXJ0iiCjjCF8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

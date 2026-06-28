@@ -29,6 +29,7 @@
 
     </androidx.cardview.widget.CardView>
 
+    <!-- Name + last message -->
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -58,12 +59,39 @@
 
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/tvTimestamp"
+    <!-- Timestamp + unread badge stacked on the right -->
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
-        android:textColor="#888888"
-        android:textSize="12sp" />
+        android:orientation="vertical"
+        android:gravity="end">
+
+        <TextView
+            android:id="@+id/tvTimestamp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#888888"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/tvUnreadBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:layout_gravity="end"
+            android:minWidth="20dp"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:background="#FFAC6E"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:visibility="gone" />
+
+    </LinearLayout>
 
 </LinearLayout>

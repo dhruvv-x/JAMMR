@@ -19,8 +19,8 @@ sealed class ChatListState {
 
 /**
  * A Chat document enriched with the OTHER participant's profile, resolved
- * relative to whoever is currently viewing the list. The raw Chat model
- * doesn't carry a fixed "other user" — that depends on who's looking.
+ * relative to whoever is currently viewing the list. Also carries the
+ * current user's unread count for this chat.
  */
 data class ChatPreview(
     val chatId: String,
@@ -28,7 +28,8 @@ data class ChatPreview(
     val otherUserName: String,
     val otherUserPhotoUrl: String?,
     val lastMessage: String,
-    val lastMessageTimestamp: Long
+    val lastMessageTimestamp: Long,
+    val unreadCount: Int = 0
 )
 
 sealed class MessagesState {
@@ -59,8 +60,6 @@ class ChatViewModel : ViewModel() {
     private var chatsListener: ListenerRegistration? = null
     private var messagesListener: ListenerRegistration? = null
 
-    // Avoids re-fetching the same user's profile repeatedly as the chat list
-    // updates in real time (e.g. every time a new message arrives).
     private val userProfileCache = mutableMapOf<String, User>()
 
     private val _chatListState = MutableLiveData<ChatListState>()
@@ -72,13 +71,16 @@ class ChatViewModel : ViewModel() {
     private val _currentChatId = MutableLiveData<String>()
     val currentChatId: LiveData<String> = _currentChatId
 
+    // Tracks the other user in the currently open chat, needed to increment
+    // their unread count when we send a message.
+    private var currentOtherUserId: String? = null
+
     private val _userSearchState = MutableLiveData<UserSearchState>(UserSearchState.Idle)
     val userSearchState: LiveData<UserSearchState> = _userSearchState
 
     private val _forwardPickerState = MutableLiveData<ForwardPickerState>(ForwardPickerState.Idle)
     val forwardPickerState: LiveData<ForwardPickerState> = _forwardPickerState
 
-    /** Starts listening for the current user's chat list (Chat List screen). */
     fun loadUserChats(currentUserId: String) {
         _chatListState.value = ChatListState.Loading
         chatsListener?.remove()
@@ -89,10 +91,6 @@ class ChatViewModel : ViewModel() {
         )
     }
 
-    /**
-     * Resolves each chat's "other participant" and fetches their profile
-     * (cached) before exposing the list to the UI.
-     */
     private fun enrichAndEmitChats(chats: List<Chat>, currentUserId: String) {
         viewModelScope.launch {
             val previews = chats.map { chat ->
@@ -102,27 +100,32 @@ class ChatViewModel : ViewModel() {
                     if (fetched != null) userProfileCache[otherUserId] = fetched
                     fetched
                 }
+                val unread = (chat.unreadCounts[currentUserId] ?: 0L).toInt()
                 ChatPreview(
                     chatId = chat.chatId,
                     otherUserId = otherUserId,
                     otherUserName = otherUser?.name?.takeIf { it.isNotBlank() } ?: "Unknown user",
                     otherUserPhotoUrl = otherUser?.photoUrl,
                     lastMessage = chat.lastMessage,
-                    lastMessageTimestamp = chat.lastMessageTimestamp
+                    lastMessageTimestamp = chat.lastMessageTimestamp,
+                    unreadCount = unread
                 )
             }
             _chatListState.value = ChatListState.Success(previews)
         }
     }
 
-    /** Opens (or creates) a chat with another user, then starts listening for its messages. */
+    /** Opens (or creates) a chat, resets unread count, then starts listening for messages. */
     fun openChatWith(currentUserId: String, otherUserId: String) {
         _messagesState.value = MessagesState.Loading
+        currentOtherUserId = otherUserId
         viewModelScope.launch {
             val result = repository.getOrCreateChat(currentUserId, otherUserId)
             if (result.isSuccess) {
                 val chatId = result.getOrNull()!!
                 _currentChatId.value = chatId
+                // Reset unread count as soon as the thread opens
+                repository.resetUnreadCount(chatId, currentUserId)
                 listenToMessages(chatId)
             } else {
                 _messagesState.value = MessagesState.Error(
@@ -141,13 +144,9 @@ class ChatViewModel : ViewModel() {
         )
     }
 
-    /**
-     * Sends a plain text message in the currently open chat.
-     * If [replyTo] is provided, a lightweight snapshot of it (sender + text)
-     * is attached so the recipient sees a quoted preview above the new message.
-     */
     fun sendTextMessage(senderId: String, text: String, replyTo: Message? = null) {
         val chatId = _currentChatId.value ?: return
+        val otherUserId = currentOtherUserId ?: return
         if (text.isBlank()) return
         viewModelScope.launch {
             val message = Message(
@@ -159,15 +158,10 @@ class ChatViewModel : ViewModel() {
                 replyToSenderId = replyTo?.senderId,
                 replyToText = replyTo?.let { if (it.type == "song") "🎵 ${it.songTrackName}" else it.text }
             )
-            repository.sendMessage(chatId, message)
+            repository.sendMessage(chatId, message, otherUserId)
         }
     }
 
-    /**
-     * Adds/changes/removes the current user's reaction on a message.
-     * Fire-and-forget: the real-time message listener will reflect the
-     * change for both users as soon as Firestore confirms the write.
-     */
     fun toggleReaction(message: Message, userId: String, emoji: String) {
         val chatId = _currentChatId.value ?: return
         viewModelScope.launch {
@@ -181,10 +175,6 @@ class ChatViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Loads the user's chat list for the "Forward to..." picker dialog.
-     * One-time fetch (not a live listener) since the dialog is short-lived.
-     */
     fun loadChatsForForwarding(currentUserId: String) {
         _forwardPickerState.value = ForwardPickerState.Loading
         viewModelScope.launch {
@@ -216,17 +206,15 @@ class ChatViewModel : ViewModel() {
         }
     }
 
-    /** Resets the picker state — call after the forward dialog closes. */
     fun clearForwardPickerState() {
         _forwardPickerState.value = ForwardPickerState.Idle
     }
 
-    /**
-     * Sends [message] into [targetChatId] as a brand-new message (own
-     * timestamp, own messageId). Reply/reaction fields are intentionally
-     * NOT copied — a forwarded message starts clean in its new chat.
-     */
     fun forwardMessage(message: Message, targetChatId: String, senderId: String) {
+        // For forward we need the other user in that target chat — look it up from cached state
+        val targetChat = (_forwardPickerState.value as? ForwardPickerState.Ready)
+            ?.chats?.firstOrNull { it.chatId == targetChatId }
+        val otherUserId = targetChat?.otherUserId ?: return
         viewModelScope.launch {
             val forwarded = Message(
                 senderId = senderId,
@@ -239,7 +227,7 @@ class ChatViewModel : ViewModel() {
                 songArtworkUrl = message.songArtworkUrl,
                 songPreviewUrl = message.songPreviewUrl
             )
-            repository.sendMessage(targetChatId, forwarded)
+            repository.sendMessage(targetChatId, forwarded, otherUserId)
         }
     }
 
@@ -248,11 +236,6 @@ class ChatViewModel : ViewModel() {
         return result.getOrNull()
     }
 
-    /**
-     * Looks up a user by email for the "start new chat" flow.
-     * Trims and lowercases the input since emails are case-insensitive
-     * and stray whitespace from copy-paste is common.
-     */
     fun searchUserByEmail(email: String) {
         val normalized = email.trim().lowercase()
         if (normalized.isEmpty()) {
@@ -270,12 +253,10 @@ class ChatViewModel : ViewModel() {
         }
     }
 
-    /** Resets the search state — call after handling a Found/NotFound/Error result. */
     fun clearUserSearchState() {
         _userSearchState.value = UserSearchState.Idle
     }
 
-    /** Call from Fragment's onDestroyView() to avoid leaking Firestore listeners. */
     fun stopListeningToMessages() {
         messagesListener?.remove()
         messagesListener = null

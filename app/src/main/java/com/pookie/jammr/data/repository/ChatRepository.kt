@@ -1,5 +1,6 @@
 package com.pookie.jammr.data.repository
 
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
@@ -39,7 +40,8 @@ class ChatRepository {
                     "participants" to listOf(currentUserId, otherUserId),
                     "lastMessage" to "",
                     "lastMessageTimestamp" to 0L,
-                    "lastMessageSenderId" to ""
+                    "lastMessageSenderId" to "",
+                    "unreadCounts" to mapOf(currentUserId to 0L, otherUserId to 0L)
                 )
                 chatRef.set(newChat).await()
             }
@@ -50,11 +52,12 @@ class ChatRepository {
     }
 
     /**
-     * Sends a message inside a chat. Updates the chat document's
-     * lastMessage/lastMessageTimestamp fields at the same time, so the
-     * chat list screen can show an up-to-date preview without extra queries.
+     * Sends a message inside a chat.
+     * - Updates lastMessage/lastMessageTimestamp on the chat document.
+     * - Increments the OTHER user's unread count by 1.
+     * The sender's own count is not touched (they just sent it, they've seen it).
      */
-    suspend fun sendMessage(chatId: String, message: Message): Result<Unit> {
+    suspend fun sendMessage(chatId: String, message: Message, otherUserId: String): Result<Unit> {
         return try {
             val messageRef = db.collection("chats").document(chatId)
                 .collection("messages").document()
@@ -66,7 +69,8 @@ class ChatRepository {
                 mapOf(
                     "lastMessage" to if (message.type == "song") "🎵 Shared a song" else message.text,
                     "lastMessageTimestamp" to message.timestamp,
-                    "lastMessageSenderId" to message.senderId
+                    "lastMessageSenderId" to message.senderId,
+                    "unreadCounts.${otherUserId}" to FieldValue.increment(1)
                 )
             ).await()
 
@@ -77,9 +81,22 @@ class ChatRepository {
     }
 
     /**
+     * Resets the current user's unread count to 0.
+     * Call this when the user opens a chat thread.
+     */
+    suspend fun resetUnreadCount(chatId: String, currentUserId: String): Result<Unit> {
+        return try {
+            db.collection("chats").document(chatId)
+                .update("unreadCounts.${currentUserId}", 0L)
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Listens for real-time message updates inside a chat.
-     * Returns a ListenerRegistration so the caller can remove the listener
-     * when the screen is destroyed (prevents memory leaks / unwanted callbacks).
      */
     fun listenForMessages(
         chatId: String,
@@ -102,8 +119,7 @@ class ChatRepository {
     }
 
     /**
-     * Listens for real-time updates to the current user's chat list
-     * (used on the Chat List / Home screen).
+     * Listens for real-time updates to the current user's chat list.
      */
     fun listenForUserChats(
         currentUserId: String,
@@ -126,9 +142,7 @@ class ChatRepository {
     }
 
     /**
-     * One-time fetch of all chats the user is part of — used by the
-     * "Forward message" picker, which needs a snapshot list rather than
-     * a live listener.
+     * One-time fetch of all chats — used by the "Forward message" picker.
      */
     suspend fun getUserChatsOnce(currentUserId: String): Result<List<Chat>> {
         return try {
@@ -145,12 +159,6 @@ class ChatRepository {
 
     /**
      * Adds, changes, or removes the current user's reaction on a message.
-     * - If the user has no reaction yet -> adds the given emoji.
-     * - If the user already reacted with this SAME emoji -> removes it (un-react).
-     * - If the user reacted with a DIFFERENT emoji -> replaces it with the new one.
-     * Uses dot-notation on a single map key (reactions.<userId>) so this only
-     * touches that one entry — concurrent reactions from other users on the
-     * same message can't overwrite each other.
      */
     suspend fun toggleReaction(
         chatId: String,
@@ -164,7 +172,7 @@ class ChatRepository {
                 .collection("messages").document(messageId)
 
             if (currentReaction == emoji) {
-                messageRef.update("reactions.$userId", com.google.firebase.firestore.FieldValue.delete()).await()
+                messageRef.update("reactions.$userId", FieldValue.delete()).await()
             } else {
                 messageRef.update("reactions.$userId", emoji).await()
             }
@@ -176,8 +184,7 @@ class ChatRepository {
     }
 
     /**
-     * Fetches a user's profile by UID — used to display the other
-     * participant's name/photo in the chat list and chat screen header.
+     * Fetches a user's profile by UID.
      */
     suspend fun getUserProfile(uid: String): Result<User> {
         return try {
@@ -190,10 +197,7 @@ class ChatRepository {
     }
 
     /**
-     * Looks up a user by their exact email address — used by the
-     * temporary "start a new chat by email" flow until a real Friend
-     * System exists. Returns null (inside a successful Result) if no
-     * user with that email is found, distinct from a query failure.
+     * Looks up a user by their exact email address.
      */
     suspend fun findUserByEmail(email: String): Result<User?> {
         return try {

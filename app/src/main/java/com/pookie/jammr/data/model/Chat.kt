@@ -7,5 +7,7 @@ data class Chat(
     val lastMessageTimestamp: Long = 0L,
     val lastMessageSenderId: String = "",
     val otherUserName: String = "",
-    val otherUserPhotoUrl: String? = null
+    val otherUserPhotoUrl: String? = null,
+    // Map of userId -> unread count, e.g. {"uid1": 3, "uid2": 0}
+    val unreadCounts: Map<String, Long> = emptyMap()
 )

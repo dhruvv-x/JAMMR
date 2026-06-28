@@ -22,6 +22,7 @@ class ChatListAdapter(
         val tvOtherUserName: TextView = itemView.findViewById(R.id.tvOtherUserName)
         val tvLastMessage: TextView = itemView.findViewById(R.id.tvLastMessage)
         val tvTimestamp: TextView = itemView.findViewById(R.id.tvTimestamp)
+        val tvUnreadBadge: TextView = itemView.findViewById(R.id.tvUnreadBadge)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ChatViewHolder {
@@ -43,6 +44,14 @@ class ChatListAdapter(
             )
         } else {
             ""
+        }
+
+        // Unread badge
+        if (chat.unreadCount > 0) {
+            holder.tvUnreadBadge.visibility = View.VISIBLE
+            holder.tvUnreadBadge.text = if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString()
+        } else {
+            holder.tvUnreadBadge.visibility = View.GONE
         }
 
         Glide.with(holder.itemView.context)

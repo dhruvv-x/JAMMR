@@ -131,8 +131,12 @@ class ChatViewModel : ViewModel() {
         )
     }
 
-    /** Sends a plain text message in the currently open chat. */
-    fun sendTextMessage(senderId: String, text: String) {
+    /**
+     * Sends a plain text message in the currently open chat.
+     * If [replyTo] is provided, a lightweight snapshot of it (sender + text)
+     * is attached so the recipient sees a quoted preview above the new message.
+     */
+    fun sendTextMessage(senderId: String, text: String, replyTo: Message? = null) {
         val chatId = _currentChatId.value ?: return
         if (text.isBlank()) return
         viewModelScope.launch {
@@ -140,9 +144,30 @@ class ChatViewModel : ViewModel() {
                 senderId = senderId,
                 text = text,
                 type = "text",
-                timestamp = System.currentTimeMillis()
+                timestamp = System.currentTimeMillis(),
+                replyToMessageId = replyTo?.messageId,
+                replyToSenderId = replyTo?.senderId,
+                replyToText = replyTo?.let { if (it.type == "song") "🎵 ${it.songTrackName}" else it.text }
             )
             repository.sendMessage(chatId, message)
+        }
+    }
+
+    /**
+     * Adds/changes/removes the current user's reaction on a message.
+     * Fire-and-forget: the real-time message listener will reflect the
+     * change for both users as soon as Firestore confirms the write.
+     */
+    fun toggleReaction(message: Message, userId: String, emoji: String) {
+        val chatId = _currentChatId.value ?: return
+        viewModelScope.launch {
+            repository.toggleReaction(
+                chatId = chatId,
+                messageId = message.messageId,
+                userId = userId,
+                emoji = emoji,
+                currentReaction = message.reactions[userId]
+            )
         }
     }
 

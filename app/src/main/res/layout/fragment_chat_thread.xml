@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/chatThreadRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#0D0D0D">
+    android:background="#0D0D0D"
+    android:fitsSystemWindows="false">
 
     <!-- Header -->
     <LinearLayout
@@ -46,6 +48,65 @@
         android:clipToPadding="false"
         android:paddingTop="8dp"
         android:paddingBottom="8dp" />
+
+    <!-- Reply preview: shown above the input bar when replying to a message,
+         hidden otherwise. Tapping the X cancels the reply. -->
+    <LinearLayout
+        android:id="@+id/replyPreviewBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#1A1A1A"
+        android:paddingStart="14dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:visibility="gone">
+
+        <View
+            android:layout_width="3dp"
+            android:layout_height="32dp"
+            android:background="#FF6B35" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tvReplyPreviewSender"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#FF6B35"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/tvReplyPreviewText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#B0B0C3"
+                android:textSize="13sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/btnCancelReply"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_back"
+            android:rotation="45"
+            android:contentDescription="Cancel reply" />
+
+    </LinearLayout>
 
     <!-- Input bar -->
     <LinearLayout

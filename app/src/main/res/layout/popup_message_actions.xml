@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_popup_menu"
+    android:elevation="8dp"
+    android:padding="8dp">
+
+    <!-- Emoji quick-react row -->
+    <LinearLayout
+        android:id="@+id/emojiRow"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:paddingBottom="6dp">
+
+        <TextView
+            android:id="@+id/emoji1"
+            style="@style/EmojiPickerItem"
+            android:text="❤️" />
+
+        <TextView
+            android:id="@+id/emoji2"
+            style="@style/EmojiPickerItem"
+            android:text="😂" />
+
+        <TextView
+            android:id="@+id/emoji3"
+            style="@style/EmojiPickerItem"
+            android:text="😮" />
+
+        <TextView
+            android:id="@+id/emoji4"
+            style="@style/EmojiPickerItem"
+            android:text="😢" />
+
+        <TextView
+            android:id="@+id/emoji5"
+            style="@style/EmojiPickerItem"
+            android:text="👍" />
+
+        <TextView
+            android:id="@+id/emoji6"
+            style="@style/EmojiPickerItem"
+            android:text="🙏" />
+
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#333333" />
+
+    <!-- Reply action -->
+    <TextView
+        android:id="@+id/btnReplyOption"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="↩️  Reply"
+        android:textColor="#FFFFFF"
+        android:textSize="15sp"
+        android:padding="12dp"
+        android:background="?attr/selectableItemBackground" />
+
+</LinearLayout>

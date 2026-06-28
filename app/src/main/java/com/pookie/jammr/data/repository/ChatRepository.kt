@@ -126,6 +126,38 @@ class ChatRepository {
     }
 
     /**
+     * Adds, changes, or removes the current user's reaction on a message.
+     * - If the user has no reaction yet -> adds the given emoji.
+     * - If the user already reacted with this SAME emoji -> removes it (un-react).
+     * - If the user reacted with a DIFFERENT emoji -> replaces it with the new one.
+     * Uses dot-notation on a single map key (reactions.<userId>) so this only
+     * touches that one entry — concurrent reactions from other users on the
+     * same message can't overwrite each other.
+     */
+    suspend fun toggleReaction(
+        chatId: String,
+        messageId: String,
+        userId: String,
+        emoji: String,
+        currentReaction: String?
+    ): Result<Unit> {
+        return try {
+            val messageRef = db.collection("chats").document(chatId)
+                .collection("messages").document(messageId)
+
+            if (currentReaction == emoji) {
+                messageRef.update("reactions.$userId", com.google.firebase.firestore.FieldValue.delete()).await()
+            } else {
+                messageRef.update("reactions.$userId", emoji).await()
+            }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Fetches a user's profile by UID — used to display the other
      * participant's name/photo in the chat list and chat screen header.
      */

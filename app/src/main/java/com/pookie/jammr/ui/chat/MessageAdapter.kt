@@ -108,7 +108,7 @@ class MessageAdapter(
     // ── ViewHolders ──────────────────────────────────────────────────────────
 
     inner class DateSeparatorViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        val tvDate: TextView = view as TextView
+        val tvDate: TextView = view.findViewById(R.id.tvDateSeparator)
     }
 
     inner class MessageViewHolder(view: View) : RecyclerView.ViewHolder(view) {

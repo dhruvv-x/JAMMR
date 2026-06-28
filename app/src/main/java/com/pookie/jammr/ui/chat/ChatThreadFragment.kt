@@ -7,6 +7,8 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.TextView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.navigation.fragment.findNavController
@@ -46,6 +48,16 @@ class ChatThreadFragment : Fragment() {
         btnSend = view.findViewById(R.id.btnSend)
         btnBack = view.findViewById(R.id.btnBack)
         tvThreadTitle = view.findViewById(R.id.tvThreadTitle)
+
+        // Push the whole screen up by exactly the keyboard's height when it opens,
+        // and back down when it closes. Needed because enableEdgeToEdge() in
+        // MainActivity makes the app draw behind the keyboard, so without this
+        // the on-screen keyboard would cover the message input box.
+        ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
+            val imeHeight = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, imeHeight)
+            insets
+        }
 
         val otherUserId = arguments?.getString("otherUserId") ?: return
         val otherUserName = arguments?.getString("otherUserName") ?: "Chat"

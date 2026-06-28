@@ -8,14 +8,20 @@ import androidx.recyclerview.widget.RecyclerView
 import com.pookie.jammr.R
 import com.pookie.jammr.data.model.Message
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
 /**
  * Renders the message list, including:
+ * - Date separators ("Today", "Yesterday", "Dec 25") between days
  * - Reply quote preview (if this message was sent as a reply to another one)
  * - A single reaction emoji badge (if anyone has reacted)
  * - Timestamp inside the bubble (HH:mm)
+ *
+ * Uses two view types: VIEW_TYPE_DATE_SEPARATOR and VIEW_TYPE_MESSAGE.
+ * The adapter builds a flat list of [ListItem] (either a DateHeader or a
+ * MessageItem) from the raw message list every time updateMessages() is called.
  *
  * Long-pressing a bubble triggers [onMessageLongPress] so the Fragment can
  * show the reaction/reply popup anchored to that bubble.
@@ -24,12 +30,86 @@ class MessageAdapter(
     private var messages: List<Message>,
     private val currentUserId: String,
     private val onMessageLongPress: (message: Message, anchorView: View) -> Unit
-) : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() {
+) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+
+    // ── List item types ──────────────────────────────────────────────────────
+
+    private sealed class ListItem {
+        data class DateHeader(val label: String) : ListItem()
+        data class MessageItem(val message: Message) : ListItem()
+    }
+
+    private var items: List<ListItem> = buildItems(messages)
+
+    companion object {
+        private const val VIEW_TYPE_DATE_SEPARATOR = 0
+        private const val VIEW_TYPE_MESSAGE = 1
+    }
+
+    // ── Formatters ───────────────────────────────────────────────────────────
 
     private val timeFormatter = SimpleDateFormat("HH:mm", Locale.getDefault())
+    private val dateFormatter = SimpleDateFormat("MMM d", Locale.getDefault())
 
     private fun formatTime(timestamp: Long): String =
         timeFormatter.format(Date(timestamp))
+
+    /**
+     * Returns "Today", "Yesterday", or "MMM d" (e.g. "Jun 14") for a timestamp.
+     */
+    private fun formatDateLabel(timestamp: Long): String {
+        val msgCal = Calendar.getInstance().apply { timeInMillis = timestamp }
+        val todayCal = Calendar.getInstance()
+
+        return when {
+            isSameDay(msgCal, todayCal) -> "Today"
+            isYesterday(msgCal, todayCal) -> "Yesterday"
+            else -> dateFormatter.format(Date(timestamp))
+        }
+    }
+
+    private fun isSameDay(a: Calendar, b: Calendar): Boolean =
+        a.get(Calendar.YEAR) == b.get(Calendar.YEAR) &&
+                a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)
+
+    private fun isYesterday(a: Calendar, b: Calendar): Boolean {
+        val yesterday = Calendar.getInstance().apply {
+            timeInMillis = b.timeInMillis
+            add(Calendar.DAY_OF_YEAR, -1)
+        }
+        return isSameDay(a, yesterday)
+    }
+
+    // ── Build flat item list ─────────────────────────────────────────────────
+
+    /**
+     * Inserts a DateHeader before the first message of each new calendar day.
+     */
+    private fun buildItems(msgs: List<Message>): List<ListItem> {
+        val result = mutableListOf<ListItem>()
+        var lastDayOfYear = -1
+        var lastYear = -1
+
+        for (msg in msgs) {
+            val cal = Calendar.getInstance().apply { timeInMillis = msg.timestamp }
+            val day = cal.get(Calendar.DAY_OF_YEAR)
+            val year = cal.get(Calendar.YEAR)
+
+            if (day != lastDayOfYear || year != lastYear) {
+                result.add(ListItem.DateHeader(formatDateLabel(msg.timestamp)))
+                lastDayOfYear = day
+                lastYear = year
+            }
+            result.add(ListItem.MessageItem(msg))
+        }
+        return result
+    }
+
+    // ── ViewHolders ──────────────────────────────────────────────────────────
+
+    inner class DateSeparatorViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val tvDate: TextView = view as TextView
+    }
 
     inner class MessageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val sentContainer: View = view.findViewById(R.id.sentContainer)
@@ -51,17 +131,36 @@ class MessageAdapter(
         val tvReceivedReaction: TextView = view.findViewById(R.id.tvReceivedReaction)
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MessageViewHolder {
-        val view = LayoutInflater.from(parent.context)
-            .inflate(R.layout.item_message, parent, false)
-        return MessageViewHolder(view)
+    // ── Adapter overrides ────────────────────────────────────────────────────
+
+    override fun getItemViewType(position: Int): Int = when (items[position]) {
+        is ListItem.DateHeader -> VIEW_TYPE_DATE_SEPARATOR
+        is ListItem.MessageItem -> VIEW_TYPE_MESSAGE
     }
 
-    override fun onBindViewHolder(holder: MessageViewHolder, position: Int) {
-        val message = messages[position]
-        val isSent = message.senderId == currentUserId
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+        val inflater = LayoutInflater.from(parent.context)
+        return when (viewType) {
+            VIEW_TYPE_DATE_SEPARATOR -> DateSeparatorViewHolder(
+                inflater.inflate(R.layout.item_date_separator, parent, false)
+            )
+            else -> MessageViewHolder(
+                inflater.inflate(R.layout.item_message, parent, false)
+            )
+        }
+    }
 
-        // Picks the FIRST reaction found to show as the single badge.
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        when (val item = items[position]) {
+            is ListItem.DateHeader -> (holder as DateSeparatorViewHolder).tvDate.text = item.label
+            is ListItem.MessageItem -> bindMessage(holder as MessageViewHolder, item.message)
+        }
+    }
+
+    override fun getItemCount() = items.size
+
+    private fun bindMessage(holder: MessageViewHolder, message: Message) {
+        val isSent = message.senderId == currentUserId
         val reactionEmoji = message.reactions.values.firstOrNull()
 
         if (isSent) {
@@ -121,10 +220,9 @@ class MessageAdapter(
         }
     }
 
-    override fun getItemCount() = messages.size
-
     fun updateMessages(newMessages: List<Message>) {
         messages = newMessages
+        items = buildItems(newMessages)
         notifyDataSetChanged()
     }
 }

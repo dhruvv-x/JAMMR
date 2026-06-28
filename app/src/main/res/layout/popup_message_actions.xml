@@ -59,7 +59,18 @@
         android:id="@+id/btnReplyOption"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="↩️  Reply"
+        android:text="↩ Reply"
+        android:textColor="#FFFFFF"
+        android:textSize="15sp"
+        android:padding="12dp"
+        android:background="?attr/selectableItemBackground" />
+
+    <!-- Forward action -->
+    <TextView
+        android:id="@+id/btnForwardOption"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="↪ Forward"
         android:textColor="#FFFFFF"
         android:textSize="15sp"
         android:padding="12dp"

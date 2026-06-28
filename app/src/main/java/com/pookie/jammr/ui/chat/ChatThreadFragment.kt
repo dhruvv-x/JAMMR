@@ -1,5 +1,6 @@
 package com.pookie.jammr.ui.chat
 
+import android.app.AlertDialog
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
@@ -9,7 +10,9 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.PopupWindow
+import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
@@ -21,6 +24,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.pookie.jammr.R
 import com.pookie.jammr.data.model.Message
 import com.pookie.jammr.viewmodel.ChatViewModel
+import com.pookie.jammr.viewmodel.ForwardPickerState
 import com.pookie.jammr.viewmodel.MessagesState
 
 class ChatThreadFragment : Fragment() {
@@ -42,6 +46,12 @@ class ChatThreadFragment : Fragment() {
     // The message currently being replied to, if any. Cleared after sending
     // or when the user taps the cancel (X) button on the preview bar.
     private var pendingReplyTo: Message? = null
+
+    // The message awaiting a destination chat while the "Forward to..." dialog is open.
+    private var pendingForwardMessage: Message? = null
+
+    // Active "Forward to..." dialog, kept so we can read its views and dismiss it.
+    private var activeForwardDialog: AlertDialog? = null
 
     private val currentUserId: String?
         get() = FirebaseAuth.getInstance().currentUser?.uid
@@ -110,11 +120,12 @@ class ChatThreadFragment : Fragment() {
 
         chatViewModel.openChatWith(uid, otherUserId)
         observeMessages()
+        observeForwardPicker(uid)
     }
 
     /**
-     * Long-press popup: a row of quick-react emojis plus a "Reply" option,
-     * anchored right above/below the bubble that was pressed.
+     * Long-press popup: a row of quick-react emojis plus "Reply" and
+     * "Forward" options, anchored right above/below the bubble that was pressed.
      */
     private fun showMessageActionsPopup(message: Message, anchorView: View, currentUserId: String) {
         val popupView = LayoutInflater.from(requireContext())
@@ -146,6 +157,11 @@ class ChatThreadFragment : Fragment() {
             popupWindow.dismiss()
         }
 
+        popupView.findViewById<TextView>(R.id.btnForwardOption).setOnClickListener {
+            popupWindow.dismiss()
+            showForwardDialog(message, currentUserId)
+        }
+
         popupWindow.showAsDropDown(anchorView, 0, -anchorView.height - 16)
     }
 
@@ -161,6 +177,78 @@ class ChatThreadFragment : Fragment() {
     private fun clearPendingReply() {
         pendingReplyTo = null
         replyPreviewBar.visibility = View.GONE
+    }
+
+    /** Opens the "Forward to..." dialog and loads the user's chat list into it. */
+    private fun showForwardDialog(message: Message, currentUserId: String) {
+        pendingForwardMessage = message
+
+        val dialogView = LayoutInflater.from(requireContext())
+            .inflate(R.layout.dialog_forward_list, null)
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle("Forward to...")
+            .setView(dialogView)
+            .setNegativeButton("Cancel") { d, _ ->
+                d.dismiss()
+            }
+            .setOnDismissListener {
+                pendingForwardMessage = null
+                activeForwardDialog = null
+                chatViewModel.clearForwardPickerState()
+            }
+            .create()
+
+        dialog.show()
+        activeForwardDialog = dialog
+
+        chatViewModel.loadChatsForForwarding(currentUserId)
+    }
+
+    private fun observeForwardPicker(currentUserId: String) {
+        chatViewModel.forwardPickerState.observe(viewLifecycleOwner) { state ->
+            val dialog = activeForwardDialog ?: return@observe
+            val progressBar = dialog.findViewById<ProgressBar>(R.id.forwardProgressBar)
+            val tvEmpty = dialog.findViewById<TextView>(R.id.tvForwardEmpty)
+            val rvChats = dialog.findViewById<RecyclerView>(R.id.rvForwardChats)
+
+            when (state) {
+                is ForwardPickerState.Idle -> Unit
+
+                is ForwardPickerState.Loading -> {
+                    progressBar?.visibility = View.VISIBLE
+                    tvEmpty?.visibility = View.GONE
+                    rvChats?.visibility = View.GONE
+                }
+
+                is ForwardPickerState.Ready -> {
+                    progressBar?.visibility = View.GONE
+                    if (state.chats.isEmpty()) {
+                        tvEmpty?.visibility = View.VISIBLE
+                        rvChats?.visibility = View.GONE
+                    } else {
+                        tvEmpty?.visibility = View.GONE
+                        rvChats?.visibility = View.VISIBLE
+                        rvChats?.layoutManager = LinearLayoutManager(requireContext())
+                        rvChats?.adapter = ForwardChatAdapter(state.chats) { chatPreview ->
+                            val message = pendingForwardMessage
+                            if (message != null) {
+                                chatViewModel.forwardMessage(message, chatPreview.chatId, currentUserId)
+                                Toast.makeText(requireContext(), "Forwarded to ${chatPreview.otherUserName}", Toast.LENGTH_SHORT).show()
+                            }
+                            dialog.dismiss()
+                        }
+                    }
+                }
+
+                is ForwardPickerState.Error -> {
+                    progressBar?.visibility = View.GONE
+                    tvEmpty?.visibility = View.VISIBLE
+                    tvEmpty?.text = "Couldn't load chats:\n${state.message}"
+                    rvChats?.visibility = View.GONE
+                }
+            }
+        }
     }
 
     private fun observeMessages() {

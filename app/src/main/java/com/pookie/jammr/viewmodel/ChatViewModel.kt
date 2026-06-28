@@ -45,6 +45,13 @@ sealed class UserSearchState {
     data class Error(val message: String) : UserSearchState()
 }
 
+sealed class ForwardPickerState {
+    object Idle : ForwardPickerState()
+    object Loading : ForwardPickerState()
+    data class Ready(val chats: List<ChatPreview>) : ForwardPickerState()
+    data class Error(val message: String) : ForwardPickerState()
+}
+
 class ChatViewModel : ViewModel() {
 
     private val repository = ChatRepository()
@@ -67,6 +74,9 @@ class ChatViewModel : ViewModel() {
 
     private val _userSearchState = MutableLiveData<UserSearchState>(UserSearchState.Idle)
     val userSearchState: LiveData<UserSearchState> = _userSearchState
+
+    private val _forwardPickerState = MutableLiveData<ForwardPickerState>(ForwardPickerState.Idle)
+    val forwardPickerState: LiveData<ForwardPickerState> = _forwardPickerState
 
     /** Starts listening for the current user's chat list (Chat List screen). */
     fun loadUserChats(currentUserId: String) {
@@ -168,6 +178,68 @@ class ChatViewModel : ViewModel() {
                 emoji = emoji,
                 currentReaction = message.reactions[userId]
             )
+        }
+    }
+
+    /**
+     * Loads the user's chat list for the "Forward to..." picker dialog.
+     * One-time fetch (not a live listener) since the dialog is short-lived.
+     */
+    fun loadChatsForForwarding(currentUserId: String) {
+        _forwardPickerState.value = ForwardPickerState.Loading
+        viewModelScope.launch {
+            val result = repository.getUserChatsOnce(currentUserId)
+            if (result.isFailure) {
+                _forwardPickerState.value = ForwardPickerState.Error(
+                    result.exceptionOrNull()?.message ?: "Couldn't load chats"
+                )
+                return@launch
+            }
+            val chats = result.getOrNull() ?: emptyList()
+            val previews = chats.map { chat ->
+                val otherUserId = chat.participants.firstOrNull { it != currentUserId } ?: ""
+                val otherUser = userProfileCache[otherUserId] ?: run {
+                    val fetched = repository.getUserProfile(otherUserId).getOrNull()
+                    if (fetched != null) userProfileCache[otherUserId] = fetched
+                    fetched
+                }
+                ChatPreview(
+                    chatId = chat.chatId,
+                    otherUserId = otherUserId,
+                    otherUserName = otherUser?.name?.takeIf { it.isNotBlank() } ?: "Unknown user",
+                    otherUserPhotoUrl = otherUser?.photoUrl,
+                    lastMessage = chat.lastMessage,
+                    lastMessageTimestamp = chat.lastMessageTimestamp
+                )
+            }
+            _forwardPickerState.value = ForwardPickerState.Ready(previews)
+        }
+    }
+
+    /** Resets the picker state — call after the forward dialog closes. */
+    fun clearForwardPickerState() {
+        _forwardPickerState.value = ForwardPickerState.Idle
+    }
+
+    /**
+     * Sends [message] into [targetChatId] as a brand-new message (own
+     * timestamp, own messageId). Reply/reaction fields are intentionally
+     * NOT copied — a forwarded message starts clean in its new chat.
+     */
+    fun forwardMessage(message: Message, targetChatId: String, senderId: String) {
+        viewModelScope.launch {
+            val forwarded = Message(
+                senderId = senderId,
+                text = message.text,
+                type = message.type,
+                timestamp = System.currentTimeMillis(),
+                songTrackId = message.songTrackId,
+                songTrackName = message.songTrackName,
+                songArtistName = message.songArtistName,
+                songArtworkUrl = message.songArtworkUrl,
+                songPreviewUrl = message.songPreviewUrl
+            )
+            repository.sendMessage(targetChatId, forwarded)
         }
     }
 

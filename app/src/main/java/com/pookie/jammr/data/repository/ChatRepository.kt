@@ -126,6 +126,24 @@ class ChatRepository {
     }
 
     /**
+     * One-time fetch of all chats the user is part of — used by the
+     * "Forward message" picker, which needs a snapshot list rather than
+     * a live listener.
+     */
+    suspend fun getUserChatsOnce(currentUserId: String): Result<List<Chat>> {
+        return try {
+            val snapshot = db.collection("chats")
+                .whereArrayContains("participants", currentUserId)
+                .get()
+                .await()
+            val chats = snapshot.documents.mapNotNull { it.toObject(Chat::class.java) }
+            Result.success(chats)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Adds, changes, or removes the current user's reaction on a message.
      * - If the user has no reaction yet -> adds the given emoji.
      * - If the user already reacted with this SAME emoji -> removes it (un-react).

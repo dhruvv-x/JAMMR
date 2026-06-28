@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#1A1A1A"
+    android:padding="8dp">
+
+    <ProgressBar
+        android:id="@+id/forwardProgressBar"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_margin="24dp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/tvForwardEmpty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="No chats to forward to yet."
+        android:textColor="#B0B0C3"
+        android:textAlignment="center"
+        android:padding="24dp"
+        android:visibility="gone" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvForwardChats"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:maxHeight="400dp" />
+
+</LinearLayout>

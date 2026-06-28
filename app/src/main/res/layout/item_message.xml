@@ -18,7 +18,6 @@
         android:maxWidth="280dp"
         android:visibility="gone">
 
-        <!-- Bubble: quote strip (optional) + message text, single rounded shape -->
         <LinearLayout
             android:id="@+id/sentBubble"
             android:layout_width="wrap_content"
@@ -70,11 +69,24 @@
                 android:paddingStart="14dp"
                 android:paddingEnd="14dp"
                 android:paddingTop="8dp"
-                android:paddingBottom="8dp" />
+                android:paddingBottom="2dp" />
+
+            <!-- Timestamp inside bubble, bottom-right -->
+            <TextView
+                android:id="@+id/tvSentTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:paddingStart="14dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="6dp"
+                android:textColor="#CCFFFFFF"
+                android:textSize="11sp" />
 
         </LinearLayout>
 
-        <!-- Reaction badge, overlapping the bottom-right of the bubble -->
+        <!-- Reaction badge -->
         <TextView
             android:id="@+id/tvSentReaction"
             android:layout_width="wrap_content"
@@ -152,7 +164,20 @@
                 android:paddingStart="14dp"
                 android:paddingEnd="14dp"
                 android:paddingTop="8dp"
-                android:paddingBottom="8dp" />
+                android:paddingBottom="2dp" />
+
+            <!-- Timestamp inside bubble, bottom-right -->
+            <TextView
+                android:id="@+id/tvReceivedTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:paddingStart="14dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="6dp"
+                android:textColor="#99FFFFFF"
+                android:textSize="11sp" />
 
         </LinearLayout>
 

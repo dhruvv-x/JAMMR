@@ -7,11 +7,15 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.pookie.jammr.R
 import com.pookie.jammr.data.model.Message
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Renders the message list, including:
  * - Reply quote preview (if this message was sent as a reply to another one)
  * - A single reaction emoji badge (if anyone has reacted)
+ * - Timestamp inside the bubble (HH:mm)
  *
  * Long-pressing a bubble triggers [onMessageLongPress] so the Fragment can
  * show the reaction/reply popup anchored to that bubble.
@@ -22,10 +26,16 @@ class MessageAdapter(
     private val onMessageLongPress: (message: Message, anchorView: View) -> Unit
 ) : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() {
 
+    private val timeFormatter = SimpleDateFormat("HH:mm", Locale.getDefault())
+
+    private fun formatTime(timestamp: Long): String =
+        timeFormatter.format(Date(timestamp))
+
     inner class MessageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val sentContainer: View = view.findViewById(R.id.sentContainer)
         val sentBubble: View = view.findViewById(R.id.sentBubble)
         val tvSent: TextView = view.findViewById(R.id.tvSent)
+        val tvSentTime: TextView = view.findViewById(R.id.tvSentTime)
         val sentReplyQuote: View = view.findViewById(R.id.sentReplyQuote)
         val tvSentReplySender: TextView = view.findViewById(R.id.tvSentReplySender)
         val tvSentReplyText: TextView = view.findViewById(R.id.tvSentReplyText)
@@ -34,6 +44,7 @@ class MessageAdapter(
         val receivedContainer: View = view.findViewById(R.id.receivedContainer)
         val receivedBubble: View = view.findViewById(R.id.receivedBubble)
         val tvReceived: TextView = view.findViewById(R.id.tvReceived)
+        val tvReceivedTime: TextView = view.findViewById(R.id.tvReceivedTime)
         val receivedReplyQuote: View = view.findViewById(R.id.receivedReplyQuote)
         val tvReceivedReplySender: TextView = view.findViewById(R.id.tvReceivedReplySender)
         val tvReceivedReplyText: TextView = view.findViewById(R.id.tvReceivedReplyText)
@@ -50,9 +61,7 @@ class MessageAdapter(
         val message = messages[position]
         val isSent = message.senderId == currentUserId
 
-        // Picks the FIRST reaction found to show as the single badge. Showing
-        // every reactor's emoji side-by-side (like a real reaction-count row)
-        // is a nice future upgrade; one badge is enough to confirm "someone reacted."
+        // Picks the FIRST reaction found to show as the single badge.
         val reactionEmoji = message.reactions.values.firstOrNull()
 
         if (isSent) {
@@ -60,6 +69,7 @@ class MessageAdapter(
             holder.receivedContainer.visibility = View.GONE
 
             holder.tvSent.text = message.text
+            holder.tvSentTime.text = formatTime(message.timestamp)
 
             if (message.replyToText != null) {
                 holder.sentReplyQuote.visibility = View.VISIBLE
@@ -86,6 +96,7 @@ class MessageAdapter(
             holder.sentContainer.visibility = View.GONE
 
             holder.tvReceived.text = message.text
+            holder.tvReceivedTime.text = formatTime(message.timestamp)
 
             if (message.replyToText != null) {
                 holder.receivedReplyQuote.visibility = View.VISIBLE

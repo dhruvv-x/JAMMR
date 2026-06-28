@@ -9,6 +9,8 @@ import com.pookie.jammr.data.model.Chat
 import com.pookie.jammr.data.model.Message
 import com.pookie.jammr.data.model.User
 import com.pookie.jammr.data.repository.ChatRepository
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 sealed class ChatListState {
@@ -17,11 +19,6 @@ sealed class ChatListState {
     data class Error(val message: String) : ChatListState()
 }
 
-/**
- * A Chat document enriched with the OTHER participant's profile, resolved
- * relative to whoever is currently viewing the list. Also carries the
- * current user's unread count for this chat.
- */
 data class ChatPreview(
     val chatId: String,
     val otherUserId: String,
@@ -59,8 +56,11 @@ class ChatViewModel : ViewModel() {
 
     private var chatsListener: ListenerRegistration? = null
     private var messagesListener: ListenerRegistration? = null
+    private var typingListener: ListenerRegistration? = null
+    private var typingClearJob: Job? = null
 
     private val userProfileCache = mutableMapOf<String, User>()
+    private var currentOtherUserId: String? = null
 
     private val _chatListState = MutableLiveData<ChatListState>()
     val chatListState: LiveData<ChatListState> = _chatListState
@@ -71,15 +71,16 @@ class ChatViewModel : ViewModel() {
     private val _currentChatId = MutableLiveData<String>()
     val currentChatId: LiveData<String> = _currentChatId
 
-    // Tracks the other user in the currently open chat, needed to increment
-    // their unread count when we send a message.
-    private var currentOtherUserId: String? = null
-
     private val _userSearchState = MutableLiveData<UserSearchState>(UserSearchState.Idle)
     val userSearchState: LiveData<UserSearchState> = _userSearchState
 
     private val _forwardPickerState = MutableLiveData<ForwardPickerState>(ForwardPickerState.Idle)
     val forwardPickerState: LiveData<ForwardPickerState> = _forwardPickerState
+
+    private val _isOtherUserTyping = MutableLiveData<Boolean>(false)
+    val isOtherUserTyping: LiveData<Boolean> = _isOtherUserTyping
+
+    // ── Chat list ────────────────────────────────────────────────────────────
 
     fun loadUserChats(currentUserId: String) {
         _chatListState.value = ChatListState.Loading
@@ -100,7 +101,6 @@ class ChatViewModel : ViewModel() {
                     if (fetched != null) userProfileCache[otherUserId] = fetched
                     fetched
                 }
-                val unread = (chat.unreadCounts[currentUserId] ?: 0L).toInt()
                 ChatPreview(
                     chatId = chat.chatId,
                     otherUserId = otherUserId,
@@ -108,14 +108,15 @@ class ChatViewModel : ViewModel() {
                     otherUserPhotoUrl = otherUser?.photoUrl,
                     lastMessage = chat.lastMessage,
                     lastMessageTimestamp = chat.lastMessageTimestamp,
-                    unreadCount = unread
+                    unreadCount = (chat.unreadCounts[currentUserId] ?: 0L).toInt()
                 )
             }
             _chatListState.value = ChatListState.Success(previews)
         }
     }
 
-    /** Opens (or creates) a chat, resets unread count, then starts listening for messages. */
+    // ── Chat thread ──────────────────────────────────────────────────────────
+
     fun openChatWith(currentUserId: String, otherUserId: String) {
         _messagesState.value = MessagesState.Loading
         currentOtherUserId = otherUserId
@@ -124,7 +125,6 @@ class ChatViewModel : ViewModel() {
             if (result.isSuccess) {
                 val chatId = result.getOrNull()!!
                 _currentChatId.value = chatId
-                // Reset unread count as soon as the thread opens
                 repository.resetUnreadCount(chatId, currentUserId)
                 listenToMessages(chatId)
             } else {
@@ -175,6 +175,43 @@ class ChatViewModel : ViewModel() {
         }
     }
 
+    // ── Typing indicator ─────────────────────────────────────────────────────
+
+    fun onUserTyping(currentUserId: String, hasText: Boolean) {
+        val chatId = _currentChatId.value ?: return
+        typingClearJob?.cancel()
+        if (hasText) {
+            viewModelScope.launch { repository.setTyping(chatId, currentUserId, true) }
+            typingClearJob = viewModelScope.launch {
+                delay(2000)
+                repository.setTyping(chatId, currentUserId, false)
+            }
+        } else {
+            viewModelScope.launch { repository.setTyping(chatId, currentUserId, false) }
+        }
+    }
+
+    fun clearTyping(currentUserId: String) {
+        val chatId = _currentChatId.value ?: return
+        typingClearJob?.cancel()
+        viewModelScope.launch { repository.setTyping(chatId, currentUserId, false) }
+    }
+
+    fun listenForTyping(otherUserId: String) {
+        val chatId = _currentChatId.value ?: return
+        typingListener?.remove()
+        typingListener = repository.listenForTyping(chatId) { typingUsers ->
+            _isOtherUserTyping.postValue(otherUserId in typingUsers)
+        }
+    }
+
+    fun stopListeningToTyping() {
+        typingListener?.remove()
+        typingListener = null
+    }
+
+    // ── Forward picker ───────────────────────────────────────────────────────
+
     fun loadChatsForForwarding(currentUserId: String) {
         _forwardPickerState.value = ForwardPickerState.Loading
         viewModelScope.launch {
@@ -211,7 +248,6 @@ class ChatViewModel : ViewModel() {
     }
 
     fun forwardMessage(message: Message, targetChatId: String, senderId: String) {
-        // For forward we need the other user in that target chat — look it up from cached state
         val targetChat = (_forwardPickerState.value as? ForwardPickerState.Ready)
             ?.chats?.firstOrNull { it.chatId == targetChatId }
         val otherUserId = targetChat?.otherUserId ?: return
@@ -231,10 +267,10 @@ class ChatViewModel : ViewModel() {
         }
     }
 
-    suspend fun fetchUserProfile(uid: String): User? {
-        val result = repository.getUserProfile(uid)
-        return result.getOrNull()
-    }
+    // ── User search ──────────────────────────────────────────────────────────
+
+    suspend fun fetchUserProfile(uid: String): User? =
+        repository.getUserProfile(uid).getOrNull()
 
     fun searchUserByEmail(email: String) {
         val normalized = email.trim().lowercase()
@@ -266,5 +302,7 @@ class ChatViewModel : ViewModel() {
         super.onCleared()
         chatsListener?.remove()
         messagesListener?.remove()
+        typingListener?.remove()
+        typingClearJob?.cancel()
     }
 }

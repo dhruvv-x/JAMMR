@@ -4,6 +4,8 @@ import android.app.AlertDialog
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -36,6 +38,7 @@ class ChatThreadFragment : Fragment() {
     private lateinit var btnSend: ImageButton
     private lateinit var btnBack: ImageButton
     private lateinit var tvThreadTitle: TextView
+    private lateinit var tvTypingIndicator: TextView
     private lateinit var adapter: MessageAdapter
 
     private lateinit var replyPreviewBar: View
@@ -43,14 +46,8 @@ class ChatThreadFragment : Fragment() {
     private lateinit var tvReplyPreviewText: TextView
     private lateinit var btnCancelReply: ImageButton
 
-    // The message currently being replied to, if any. Cleared after sending
-    // or when the user taps the cancel (X) button on the preview bar.
     private var pendingReplyTo: Message? = null
-
-    // The message awaiting a destination chat while the "Forward to..." dialog is open.
     private var pendingForwardMessage: Message? = null
-
-    // Active "Forward to..." dialog, kept so we can read its views and dismiss it.
     private var activeForwardDialog: AlertDialog? = null
 
     private val currentUserId: String?
@@ -71,15 +68,12 @@ class ChatThreadFragment : Fragment() {
         btnSend = view.findViewById(R.id.btnSend)
         btnBack = view.findViewById(R.id.btnBack)
         tvThreadTitle = view.findViewById(R.id.tvThreadTitle)
+        tvTypingIndicator = view.findViewById(R.id.tvTypingIndicator)
         replyPreviewBar = view.findViewById(R.id.replyPreviewBar)
         tvReplyPreviewSender = view.findViewById(R.id.tvReplyPreviewSender)
         tvReplyPreviewText = view.findViewById(R.id.tvReplyPreviewText)
         btnCancelReply = view.findViewById(R.id.btnCancelReply)
 
-        // Push the whole screen up by exactly the keyboard's height when it opens,
-        // and back down when it closes. Needed because enableEdgeToEdge() in
-        // MainActivity makes the app draw behind the keyboard, so without this
-        // the on-screen keyboard would cover the message input box.
         ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
             val imeHeight = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
             v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, imeHeight)
@@ -102,12 +96,11 @@ class ChatThreadFragment : Fragment() {
         rvMessages.adapter = adapter
 
         btnBack.setOnClickListener {
+            chatViewModel.clearTyping(uid)
             findNavController().popBackStack()
         }
 
-        btnCancelReply.setOnClickListener {
-            clearPendingReply()
-        }
+        btnCancelReply.setOnClickListener { clearPendingReply() }
 
         btnSend.setOnClickListener {
             val text = etMessage.text.toString().trim()
@@ -115,18 +108,41 @@ class ChatThreadFragment : Fragment() {
                 chatViewModel.sendTextMessage(uid, text, replyTo = pendingReplyTo)
                 etMessage.setText("")
                 clearPendingReply()
+                // Clear typing immediately after sending
+                chatViewModel.clearTyping(uid)
             }
         }
 
+        // Typing indicator: notify ViewModel on every text change
+        etMessage.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                chatViewModel.onUserTyping(uid, s?.isNotEmpty() == true)
+            }
+        })
+
         chatViewModel.openChatWith(uid, otherUserId)
+
+        // Start listening for typing AFTER openChatWith so chatId is set
+        // We observe currentChatId and kick off typing listener once we have it
+        chatViewModel.currentChatId.observe(viewLifecycleOwner) { chatId ->
+            if (!chatId.isNullOrBlank()) {
+                chatViewModel.listenForTyping(otherUserId)
+            }
+        }
+
         observeMessages()
+        observeTyping()
         observeForwardPicker(uid)
     }
 
-    /**
-     * Long-press popup: a row of quick-react emojis plus "Reply" and
-     * "Forward" options, anchored right above/below the bubble that was pressed.
-     */
+    private fun observeTyping() {
+        chatViewModel.isOtherUserTyping.observe(viewLifecycleOwner) { isTyping ->
+            tvTypingIndicator.visibility = if (isTyping) View.VISIBLE else View.GONE
+        }
+    }
+
     private fun showMessageActionsPopup(message: Message, anchorView: View, currentUserId: String) {
         val popupView = LayoutInflater.from(requireContext())
             .inflate(R.layout.popup_message_actions, null)
@@ -165,7 +181,6 @@ class ChatThreadFragment : Fragment() {
         popupWindow.showAsDropDown(anchorView, 0, -anchorView.height - 16)
     }
 
-    /** Shows the reply preview bar above the input box for the given message. */
     private fun setPendingReply(message: Message, currentUserId: String) {
         pendingReplyTo = message
         tvReplyPreviewSender.text = if (message.senderId == currentUserId) "Replying to yourself" else "Replying to ${tvThreadTitle.text}"
@@ -179,7 +194,6 @@ class ChatThreadFragment : Fragment() {
         replyPreviewBar.visibility = View.GONE
     }
 
-    /** Opens the "Forward to..." dialog and loads the user's chat list into it. */
     private fun showForwardDialog(message: Message, currentUserId: String) {
         pendingForwardMessage = message
 
@@ -189,9 +203,7 @@ class ChatThreadFragment : Fragment() {
         val dialog = AlertDialog.Builder(requireContext())
             .setTitle("Forward to...")
             .setView(dialogView)
-            .setNegativeButton("Cancel") { d, _ ->
-                d.dismiss()
-            }
+            .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
             .setOnDismissListener {
                 pendingForwardMessage = null
                 activeForwardDialog = null
@@ -214,13 +226,11 @@ class ChatThreadFragment : Fragment() {
 
             when (state) {
                 is ForwardPickerState.Idle -> Unit
-
                 is ForwardPickerState.Loading -> {
                     progressBar?.visibility = View.VISIBLE
                     tvEmpty?.visibility = View.GONE
                     rvChats?.visibility = View.GONE
                 }
-
                 is ForwardPickerState.Ready -> {
                     progressBar?.visibility = View.GONE
                     if (state.chats.isEmpty()) {
@@ -240,7 +250,6 @@ class ChatThreadFragment : Fragment() {
                         }
                     }
                 }
-
                 is ForwardPickerState.Error -> {
                     progressBar?.visibility = View.GONE
                     tvEmpty?.visibility = View.VISIBLE
@@ -268,6 +277,8 @@ class ChatThreadFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        currentUserId?.let { chatViewModel.clearTyping(it) }
         chatViewModel.stopListeningToMessages()
+        chatViewModel.stopListeningToTyping()
     }
 }

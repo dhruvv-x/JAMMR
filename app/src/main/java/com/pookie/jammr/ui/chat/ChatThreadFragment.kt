@@ -1,8 +1,11 @@
 package com.pookie.jammr.ui.chat
 
 import android.app.AlertDialog
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
+import android.media.MediaMetadataRetriever
+import android.net.Uri
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -15,6 +18,7 @@ import android.widget.PopupWindow
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
@@ -27,7 +31,9 @@ import com.pookie.jammr.R
 import com.pookie.jammr.data.model.Message
 import com.pookie.jammr.viewmodel.ChatViewModel
 import com.pookie.jammr.viewmodel.ForwardPickerState
+import com.pookie.jammr.viewmodel.MediaUploadState
 import com.pookie.jammr.viewmodel.MessagesState
+import java.io.ByteArrayOutputStream
 
 class ChatThreadFragment : Fragment() {
 
@@ -37,6 +43,8 @@ class ChatThreadFragment : Fragment() {
     private lateinit var etMessage: EditText
     private lateinit var btnSend: ImageButton
     private lateinit var btnBack: ImageButton
+    private lateinit var btnAttach: ImageButton
+    private lateinit var uploadProgressBar: ProgressBar
     private lateinit var tvThreadTitle: TextView
     private lateinit var tvTypingIndicator: TextView
     private lateinit var adapter: MessageAdapter
@@ -53,6 +61,13 @@ class ChatThreadFragment : Fragment() {
     private val currentUserId: String?
         get() = FirebaseAuth.getInstance().currentUser?.uid
 
+    // Modern system photo/video picker — no storage permission needed at all,
+    // since it runs as a separate trusted system process and only hands back
+    // a content:// Uri for the one item the user picked.
+    private val pickMedia = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) handlePickedMedia(uri)
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
@@ -67,6 +82,8 @@ class ChatThreadFragment : Fragment() {
         etMessage = view.findViewById(R.id.etMessage)
         btnSend = view.findViewById(R.id.btnSend)
         btnBack = view.findViewById(R.id.btnBack)
+        btnAttach = view.findViewById(R.id.btnAttach)
+        uploadProgressBar = view.findViewById(R.id.uploadProgressBar)
         tvThreadTitle = view.findViewById(R.id.tvThreadTitle)
         tvTypingIndicator = view.findViewById(R.id.tvTypingIndicator)
         replyPreviewBar = view.findViewById(R.id.replyPreviewBar)
@@ -87,9 +104,13 @@ class ChatThreadFragment : Fragment() {
 
         val uid = currentUserId ?: return
 
-        adapter = MessageAdapter(emptyList(), uid) { message, anchorView ->
-            showMessageActionsPopup(message, anchorView, uid)
-        }
+        adapter = MessageAdapter(
+            messages = emptyList(),
+            currentUserId = uid,
+            onMessageLongPress = { message, anchorView -> showMessageActionsPopup(message, anchorView, uid) },
+            onMediaClick = { message -> openMediaViewer(message) },
+            onReplyQuoteTap = { replyToMessageId -> scrollToMessage(replyToMessageId) }
+        )
         rvMessages.layoutManager = LinearLayoutManager(requireContext()).also {
             it.stackFromEnd = true
         }
@@ -101,6 +122,14 @@ class ChatThreadFragment : Fragment() {
         }
 
         btnCancelReply.setOnClickListener { clearPendingReply() }
+
+        btnAttach.setOnClickListener {
+            pickMedia.launch(
+                androidx.activity.result.PickVisualMediaRequest(
+                    ActivityResultContracts.PickVisualMedia.ImageAndVideo
+                )
+            )
+        }
 
         btnSend.setOnClickListener {
             val text = etMessage.text.toString().trim()
@@ -135,12 +164,102 @@ class ChatThreadFragment : Fragment() {
         observeMessages()
         observeTyping()
         observeForwardPicker(uid)
+        observeMediaUpload()
     }
 
     private fun observeTyping() {
         chatViewModel.isOtherUserTyping.observe(viewLifecycleOwner) { isTyping ->
             tvTypingIndicator.visibility = if (isTyping) View.VISIBLE else View.GONE
         }
+    }
+
+    /**
+     * Called once the user picks a photo or video from the system picker.
+     * Determines the media type from the returned Uri's MIME type, extracts
+     * a thumbnail frame for videos (needed since we never want to download
+     * the full video just to render its bubble), then hands off to the
+     * ViewModel to upload + send.
+     */
+    private fun handlePickedMedia(uri: Uri) {
+        val uid = currentUserId ?: return
+        val mimeType = requireContext().contentResolver.getType(uri) ?: ""
+        val isVideo = mimeType.startsWith("video")
+
+        if (isVideo) {
+            val thumbnailBytes = extractVideoThumbnailBytes(uri)
+            chatViewModel.sendMediaMessage(uid, uri, isVideo = true, videoThumbnailBytes = thumbnailBytes, context = requireContext().applicationContext)
+        } else {
+            chatViewModel.sendMediaMessage(uid, uri, isVideo = false, videoThumbnailBytes = null, context = requireContext().applicationContext)
+        }
+    }
+
+    /**
+     * Grabs a single frame from the video (at the 1-second mark, falling
+     * back to frame 0 for very short clips) and JPEG-encodes it. Returns
+     * null on any failure — sendMediaMessage() handles a null thumbnail
+     * gracefully by falling back to showing the full video URL instead.
+     */
+    private fun extractVideoThumbnailBytes(uri: Uri): ByteArray? {
+        return try {
+            val retriever = MediaMetadataRetriever()
+            retriever.setDataSource(requireContext(), uri)
+            val frame: Bitmap? = retriever.getFrameAtTime(1_000_000) ?: retriever.frameAtTime
+            retriever.release()
+            if (frame == null) return null
+
+            ByteArrayOutputStream().use { stream ->
+                frame.compress(Bitmap.CompressFormat.JPEG, 80, stream)
+                stream.toByteArray()
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun observeMediaUpload() {
+        chatViewModel.mediaUploadState.observe(viewLifecycleOwner) { state ->
+            when (state) {
+                is MediaUploadState.Idle -> {
+                    uploadProgressBar.visibility = View.GONE
+                }
+                is MediaUploadState.Uploading -> {
+                    uploadProgressBar.visibility = View.VISIBLE
+                    uploadProgressBar.progress = state.progress
+                }
+                is MediaUploadState.Done -> {
+                    uploadProgressBar.visibility = View.GONE
+                    chatViewModel.clearMediaUploadState()
+                }
+                is MediaUploadState.Error -> {
+                    uploadProgressBar.visibility = View.GONE
+                    Toast.makeText(requireContext(), "Upload failed: ${state.message}", Toast.LENGTH_LONG).show()
+                    chatViewModel.clearMediaUploadState()
+                }
+            }
+        }
+    }
+
+    /** Opens the full-screen viewer for a tapped image/video bubble. */
+
+    private fun scrollToMessage(messageId: String) {
+        val position = adapter.findPositionByMessageId(messageId)
+        if (position == -1) return
+        rvMessages.scrollToPosition(position)
+        rvMessages.post {
+            val targetView = (rvMessages.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager)
+                ?.findViewByPosition(position) ?: return@post
+            targetView.setBackgroundColor(android.graphics.Color.parseColor("#33FFAC6E"))
+            targetView.postDelayed({ targetView.setBackgroundColor(android.graphics.Color.TRANSPARENT) }, 800)
+        }
+    }
+
+    private fun openMediaViewer(message: Message) {
+        val url = message.mediaUrl ?: return
+        val bundle = Bundle().apply {
+            putString("mediaUrl", url)
+            putBoolean("isVideo", message.type == "video")
+        }
+        findNavController().navigate(R.id.action_chatThreadFragment_to_mediaViewerFragment, bundle)
     }
 
     private fun showMessageActionsPopup(message: Message, anchorView: View, currentUserId: String) {
@@ -184,7 +303,12 @@ class ChatThreadFragment : Fragment() {
     private fun setPendingReply(message: Message, currentUserId: String) {
         pendingReplyTo = message
         tvReplyPreviewSender.text = if (message.senderId == currentUserId) "Replying to yourself" else "Replying to ${tvThreadTitle.text}"
-        tvReplyPreviewText.text = if (message.type == "song") "🎵 ${message.songTrackName}" else message.text
+        tvReplyPreviewText.text = when (message.type) {
+            "song" -> "🎵 ${message.songTrackName}"
+            "image" -> "📷 Photo"
+            "video" -> "🎥 Video"
+            else -> message.text
+        }
         replyPreviewBar.visibility = View.VISIBLE
         etMessage.requestFocus()
     }

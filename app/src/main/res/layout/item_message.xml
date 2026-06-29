@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
@@ -59,6 +60,32 @@
                     android:ellipsize="end" />
 
             </LinearLayout>
+
+            <!-- Media: photo or video. Same ImageView renders both — for
+                 video we load the thumbnail and overlay a play button. -->
+            <FrameLayout
+                android:id="@+id/sentMediaFrame"
+                android:layout_width="220dp"
+                android:layout_height="220dp"
+                android:layout_margin="4dp"
+                android:visibility="gone">
+
+                <com.google.android.material.imageview.ShapeableImageView
+                    android:id="@+id/ivSentMedia"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="centerCrop"
+                    app:shapeAppearanceOverlay="@style/RoundedImageCorners" />
+
+                <ImageView
+                    android:id="@+id/ivSentPlayIcon"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_play_circle"
+                    android:visibility="gone" />
+
+            </FrameLayout>
 
             <TextView
                 android:id="@+id/tvSent"
@@ -154,6 +181,30 @@
                     android:ellipsize="end" />
 
             </LinearLayout>
+
+            <FrameLayout
+                android:id="@+id/receivedMediaFrame"
+                android:layout_width="220dp"
+                android:layout_height="220dp"
+                android:layout_margin="4dp"
+                android:visibility="gone">
+
+                <com.google.android.material.imageview.ShapeableImageView
+                    android:id="@+id/ivReceivedMedia"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="centerCrop"
+                    app:shapeAppearanceOverlay="@style/RoundedImageCorners" />
+
+                <ImageView
+                    android:id="@+id/ivReceivedPlayIcon"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_play_circle"
+                    android:visibility="gone" />
+
+            </FrameLayout>
 
             <TextView
                 android:id="@+id/tvReceived"

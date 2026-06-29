@@ -1,5 +1,6 @@
 package com.pookie.jammr.viewmodel
 
+import android.net.Uri
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
@@ -50,6 +51,13 @@ sealed class ForwardPickerState {
     data class Error(val message: String) : ForwardPickerState()
 }
 
+sealed class MediaUploadState {
+    object Idle : MediaUploadState()
+    data class Uploading(val progress: Int) : MediaUploadState()
+    object Done : MediaUploadState()
+    data class Error(val message: String) : MediaUploadState()
+}
+
 class ChatViewModel : ViewModel() {
 
     private val repository = ChatRepository()
@@ -79,6 +87,9 @@ class ChatViewModel : ViewModel() {
 
     private val _isOtherUserTyping = MutableLiveData<Boolean>(false)
     val isOtherUserTyping: LiveData<Boolean> = _isOtherUserTyping
+
+    private val _mediaUploadState = MutableLiveData<MediaUploadState>(MediaUploadState.Idle)
+    val mediaUploadState: LiveData<MediaUploadState> = _mediaUploadState
 
     // ── Chat list ────────────────────────────────────────────────────────────
 
@@ -156,7 +167,14 @@ class ChatViewModel : ViewModel() {
                 timestamp = System.currentTimeMillis(),
                 replyToMessageId = replyTo?.messageId,
                 replyToSenderId = replyTo?.senderId,
-                replyToText = replyTo?.let { if (it.type == "song") "🎵 ${it.songTrackName}" else it.text }
+                replyToText = replyTo?.let {
+                    when (it.type) {
+                        "song" -> "🎵 ${it.songTrackName}"
+                        "image" -> "📷 Photo"
+                        "video" -> "🎥 Video"
+                        else -> it.text
+                    }
+                }
             )
             repository.sendMessage(chatId, message, otherUserId)
         }
@@ -173,6 +191,60 @@ class ChatViewModel : ViewModel() {
                 currentReaction = message.reactions[userId]
             )
         }
+    }
+
+    // ── Media (photo / video) sharing ────────────────────────────────────────
+
+    /**
+     * Uploads the picked media file (and, for videos, its already-extracted
+     * thumbnail bytes) to Firebase Storage, then sends a message pointing at
+     * the resulting URL(s). Progress is exposed via [mediaUploadState] so the
+     * Fragment can show a progress bar — uploads can take a while on mobile
+     * data, especially for video.
+     */
+    fun sendMediaMessage(senderId: String, fileUri: Uri, isVideo: Boolean, videoThumbnailBytes: ByteArray?, context: android.content.Context) {
+        val chatId = _currentChatId.value ?: return
+        val otherUserId = currentOtherUserId ?: return
+
+        _mediaUploadState.value = MediaUploadState.Uploading(0)
+        viewModelScope.launch {
+            val uploadResult = repository.uploadChatMedia(
+                chatId = chatId,
+                fileUri = fileUri,
+                isVideo = isVideo,
+                context = context,
+                onProgress = { progress -> _mediaUploadState.postValue(MediaUploadState.Uploading(progress)) }
+            )
+
+            if (uploadResult.isFailure) {
+                _mediaUploadState.value = MediaUploadState.Error(
+                    uploadResult.exceptionOrNull()?.message ?: "Upload failed"
+                )
+                return@launch
+            }
+            val mediaUrl = uploadResult.getOrNull()!!
+
+            var thumbnailUrl: String? = null
+            if (isVideo && videoThumbnailBytes != null) {
+                val thumbResult = repository.uploadChatMediaThumbnail(chatId, videoThumbnailBytes)
+                thumbnailUrl = thumbResult.getOrNull()
+            }
+
+            val message = Message(
+                senderId = senderId,
+                type = if (isVideo) "video" else "image",
+                timestamp = System.currentTimeMillis(),
+                mediaUrl = mediaUrl,
+                mediaThumbnailUrl = thumbnailUrl
+            )
+            repository.sendMessage(chatId, message, otherUserId)
+            _mediaUploadState.value = MediaUploadState.Done
+        }
+    }
+
+    /** Resets upload state — call after handling Done/Error so it doesn't replay on rotation. */
+    fun clearMediaUploadState() {
+        _mediaUploadState.value = MediaUploadState.Idle
     }
 
     // ── Typing indicator ─────────────────────────────────────────────────────
@@ -261,7 +333,11 @@ class ChatViewModel : ViewModel() {
                 songTrackName = message.songTrackName,
                 songArtistName = message.songArtistName,
                 songArtworkUrl = message.songArtworkUrl,
-                songPreviewUrl = message.songPreviewUrl
+                songPreviewUrl = message.songPreviewUrl,
+                mediaUrl = message.mediaUrl,
+                mediaThumbnailUrl = message.mediaThumbnailUrl,
+                mediaWidth = message.mediaWidth,
+                mediaHeight = message.mediaHeight
             )
             repository.sendMessage(targetChatId, forwarded, otherUserId)
         }

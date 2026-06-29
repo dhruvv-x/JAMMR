@@ -67,6 +67,7 @@ dependencies {
     // Networking - iTunes Search API
     implementation(libs.retrofit.core)
     implementation(libs.retrofit.gson)
+    implementation(libs.okhttp)
 
     // Image loading
     implementation(libs.glide)

@@ -17,4 +17,9 @@
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
     </style>
+
+    <!-- Rounded corners for photo/video thumbnails inside chat bubbles -->
+    <style name="RoundedImageCorners">
+        <item name="cornerSize">12dp</item>
+    </style>
 </resources>

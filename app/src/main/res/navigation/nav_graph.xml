@@ -85,6 +85,22 @@
         <argument
             android:name="otherUserName"
             app:argType="string" />
+        <action
+            android:id="@+id/action_chatThreadFragment_to_mediaViewerFragment"
+            app:destination="@id/mediaViewerFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/mediaViewerFragment"
+        android:name="com.pookie.jammr.ui.chat.MediaViewerFragment"
+        android:label="MediaViewerFragment"
+        tools:layout="@layout/fragment_media_viewer">
+        <argument
+            android:name="mediaUrl"
+            app:argType="string" />
+        <argument
+            android:name="isVideo"
+            app:argType="boolean" />
     </fragment>
 
 </navigation>

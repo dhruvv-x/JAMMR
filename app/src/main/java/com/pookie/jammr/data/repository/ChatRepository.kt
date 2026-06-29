@@ -1,5 +1,7 @@
 package com.pookie.jammr.data.repository
 
+import android.content.Context
+import android.net.Uri
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
@@ -7,11 +9,30 @@ import com.google.firebase.firestore.Query
 import com.pookie.jammr.data.model.Chat
 import com.pookie.jammr.data.model.Message
 import com.pookie.jammr.data.model.User
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.tasks.await
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
 
 class ChatRepository {
 
     private val db = FirebaseFirestore.getInstance()
+    private val httpClient = OkHttpClient()
+
+    // Cloudinary unsigned-upload config. Safe to keep in client code — unlike
+    // an API secret, the cloud name + an UNSIGNED preset name are not
+    // sensitive: the preset itself (configured in the Cloudinary console)
+    // is what restricts what an unsigned upload is allowed to do.
+    private val cloudinaryCloudName = "dk5jamsan"
+    private val cloudinaryUploadPreset = "jammr_unsigned"
 
     private fun generateChatId(uid1: String, uid2: String): String {
         return if (uid1 < uid2) "${uid1}_${uid2}" else "${uid2}_${uid1}"
@@ -47,7 +68,12 @@ class ChatRepository {
             messageRef.set(messageWithId).await()
             db.collection("chats").document(chatId).update(
                 mapOf(
-                    "lastMessage" to if (message.type == "song") "🎵 Shared a song" else message.text,
+                    "lastMessage" to when (message.type) {
+                        "song" -> "🎵 Shared a song"
+                        "image" -> "📷 Photo"
+                        "video" -> "🎥 Video"
+                        else -> message.text
+                    },
                     "lastMessageTimestamp" to message.timestamp,
                     "lastMessageSenderId" to message.senderId,
                     "unreadCounts.${otherUserId}" to FieldValue.increment(1)
@@ -178,5 +204,118 @@ class ChatRepository {
                 val typingUsers = snapshot.get("typingUsers") as? Map<String, Boolean> ?: emptyMap()
                 onTypingChanged(typingUsers.filterValues { it }.keys)
             }
+    }
+
+    // ── Media (photo / video) sharing — via Cloudinary unsigned upload ──────
+
+    /**
+     * Uploads a photo or video to Cloudinary using an unsigned upload preset.
+     * Cloudinary's REST API needs an actual file on disk (or a byte stream),
+     * so the picked content:// Uri is first copied into the app's cache
+     * directory, uploaded, then deleted regardless of outcome.
+     *
+     * [onProgress] is best-effort: OkHttp's RequestBody doesn't expose
+     * granular byte-level progress without a custom wrapper, so this reports
+     * 0 while uploading and 100 once the request completes. Good enough to
+     * drive an indeterminate-feeling progress bar without misleading numbers.
+     */
+    suspend fun uploadChatMedia(
+        chatId: String,
+        fileUri: Uri,
+        isVideo: Boolean,
+        context: Context,
+        onProgress: (Int) -> Unit
+    ): Result<String> {
+        var tempFile: File? = null
+        return try {
+            onProgress(0)
+            tempFile = copyUriToTempFile(context, fileUri, isVideo)
+
+            val resourceType = if (isVideo) "video" else "image"
+            val mediaType = (if (isVideo) "video/mp4" else "image/jpeg").toMediaTypeOrNull()
+
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("upload_preset", cloudinaryUploadPreset)
+                .addFormDataPart("folder", "jammr_chat_media/$chatId")
+                .addFormDataPart(
+                    "file", tempFile.name,
+                    tempFile.asRequestBody(mediaType)
+                )
+                .build()
+
+            val request = Request.Builder()
+                .url("https://api.cloudinary.com/v1_1/$cloudinaryCloudName/$resourceType/upload")
+                .post(requestBody)
+                .build()
+
+            val responseBody = executeRequest(request)
+            onProgress(100)
+
+            val secureUrl = JSONObject(responseBody).getString("secure_url")
+            Result.success(secureUrl)
+        } catch (e: Exception) {
+            android.util.Log.e("JAMMR_UPLOAD", "uploadChatMedia failed", e)
+            Result.failure(Exception(e.message ?: e.javaClass.simpleName, e))
+        } finally {
+            tempFile?.delete()
+        }
+    }
+
+    /**
+     * Uploads a video's thumbnail bitmap (already extracted by the caller)
+     * as a small JPEG, separately from the full video. Keeping it separate
+     * means the chat list/thread can render instantly without ever touching
+     * the (much larger) video file.
+     */
+    suspend fun uploadChatMediaThumbnail(
+        chatId: String,
+        thumbnailBytes: ByteArray
+    ): Result<String> {
+        return try {
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("upload_preset", cloudinaryUploadPreset)
+                .addFormDataPart("folder", "jammr_chat_media/$chatId/thumbnails")
+                .addFormDataPart(
+                    "file", "thumb.jpg",
+                    thumbnailBytes.toRequestBody("image/jpeg".toMediaTypeOrNull())
+                )
+                .build()
+
+            val request = Request.Builder()
+                .url("https://api.cloudinary.com/v1_1/$cloudinaryCloudName/image/upload")
+                .post(requestBody)
+                .build()
+
+            val responseBody = executeRequest(request)
+            val secureUrl = JSONObject(responseBody).getString("secure_url")
+            Result.success(secureUrl)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /** Runs an OkHttp request on the IO dispatcher and returns the response body as a string. */
+    private suspend fun executeRequest(request: Request): String = withContext(Dispatchers.IO) {
+        val response = httpClient.newCall(request).execute()
+        val body = response.body?.string() ?: ""
+        if (!response.isSuccessful) {
+            android.util.Log.e("JAMMR_UPLOAD", "Cloudinary error \${response.code}: \$body")
+            throw Exception("Cloudinary \${response.code}: \$body")
+        }
+        body
+    }
+
+    /** Copies a content:// Uri into a temp file in the app's cache dir so Cloudinary's API can read it as a File. */
+    private fun copyUriToTempFile(context: Context, uri: Uri, isVideo: Boolean): File {
+        val extension = if (isVideo) "mp4" else "jpg"
+        val tempFile = File.createTempFile("upload_", ".$extension", context.cacheDir)
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            FileOutputStream(tempFile).use { output ->
+                input.copyTo(output)
+            }
+        } ?: throw Exception("Could not read selected file")
+        return tempFile
     }
 }

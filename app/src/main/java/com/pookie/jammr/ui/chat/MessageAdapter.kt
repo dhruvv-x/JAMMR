@@ -3,8 +3,12 @@ package com.pookie.jammr.ui.chat
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide
+import com.google.android.material.imageview.ShapeableImageView
 import com.pookie.jammr.R
 import com.pookie.jammr.data.model.Message
 import java.text.SimpleDateFormat
@@ -18,18 +22,23 @@ import java.util.Locale
  * - Reply quote preview (if this message was sent as a reply to another one)
  * - A single reaction emoji badge (if anyone has reacted)
  * - Timestamp inside the bubble (HH:mm)
+ * - Photo/video media (image fills the bubble; video shows its thumbnail
+ *   with a play icon overlay)
  *
  * Uses two view types: VIEW_TYPE_DATE_SEPARATOR and VIEW_TYPE_MESSAGE.
  * The adapter builds a flat list of [ListItem] (either a DateHeader or a
  * MessageItem) from the raw message list every time updateMessages() is called.
  *
  * Long-pressing a bubble triggers [onMessageLongPress] so the Fragment can
- * show the reaction/reply popup anchored to that bubble.
+ * show the reaction/reply popup anchored to that bubble. Tapping a media
+ * bubble triggers [onMediaClick] so the Fragment can open a full-screen viewer.
  */
 class MessageAdapter(
     private var messages: List<Message>,
     private val currentUserId: String,
-    private val onMessageLongPress: (message: Message, anchorView: View) -> Unit
+    private val onMessageLongPress: (message: Message, anchorView: View) -> Unit,
+    private val onMediaClick: (message: Message) -> Unit,
+    private val onReplyQuoteTap: (replyToMessageId: String) -> Unit = {}
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     // ── List item types ──────────────────────────────────────────────────────
@@ -120,6 +129,9 @@ class MessageAdapter(
         val tvSentReplySender: TextView = view.findViewById(R.id.tvSentReplySender)
         val tvSentReplyText: TextView = view.findViewById(R.id.tvSentReplyText)
         val tvSentReaction: TextView = view.findViewById(R.id.tvSentReaction)
+        val sentMediaFrame: FrameLayout = view.findViewById(R.id.sentMediaFrame)
+        val ivSentMedia: ShapeableImageView = view.findViewById(R.id.ivSentMedia)
+        val ivSentPlayIcon: ImageView = view.findViewById(R.id.ivSentPlayIcon)
 
         val receivedContainer: View = view.findViewById(R.id.receivedContainer)
         val receivedBubble: View = view.findViewById(R.id.receivedBubble)
@@ -129,6 +141,9 @@ class MessageAdapter(
         val tvReceivedReplySender: TextView = view.findViewById(R.id.tvReceivedReplySender)
         val tvReceivedReplyText: TextView = view.findViewById(R.id.tvReceivedReplyText)
         val tvReceivedReaction: TextView = view.findViewById(R.id.tvReceivedReaction)
+        val receivedMediaFrame: FrameLayout = view.findViewById(R.id.receivedMediaFrame)
+        val ivReceivedMedia: ShapeableImageView = view.findViewById(R.id.ivReceivedMedia)
+        val ivReceivedPlayIcon: ImageView = view.findViewById(R.id.ivReceivedPlayIcon)
     }
 
     // ── Adapter overrides ────────────────────────────────────────────────────
@@ -162,21 +177,36 @@ class MessageAdapter(
     private fun bindMessage(holder: MessageViewHolder, message: Message) {
         val isSent = message.senderId == currentUserId
         val reactionEmoji = message.reactions.values.firstOrNull()
+        val isMedia = message.type == "image" || message.type == "video"
 
         if (isSent) {
             holder.sentContainer.visibility = View.VISIBLE
             holder.receivedContainer.visibility = View.GONE
 
-            holder.tvSent.text = message.text
             holder.tvSentTime.text = formatTime(message.timestamp)
+            bindMediaOrText(
+                isMedia = isMedia,
+                isVideo = message.type == "video",
+                mediaUrl = message.mediaUrl,
+                thumbnailUrl = message.mediaThumbnailUrl,
+                text = message.text,
+                mediaFrame = holder.sentMediaFrame,
+                mediaImageView = holder.ivSentMedia,
+                playIcon = holder.ivSentPlayIcon,
+                textView = holder.tvSent
+            )
 
             if (message.replyToText != null) {
                 holder.sentReplyQuote.visibility = View.VISIBLE
                 holder.tvSentReplySender.text =
                     if (message.replyToSenderId == currentUserId) "You" else "Them"
                 holder.tvSentReplyText.text = message.replyToText
+                holder.sentReplyQuote.setOnClickListener {
+                    message.replyToMessageId?.let { id -> onReplyQuoteTap(id) }
+                }
             } else {
                 holder.sentReplyQuote.visibility = View.GONE
+                holder.sentReplyQuote.setOnClickListener(null)
             }
 
             if (reactionEmoji != null) {
@@ -190,20 +220,37 @@ class MessageAdapter(
                 onMessageLongPress(message, holder.sentBubble)
                 true
             }
+            holder.sentMediaFrame.setOnClickListener {
+                if (isMedia) onMediaClick(message)
+            }
         } else {
             holder.receivedContainer.visibility = View.VISIBLE
             holder.sentContainer.visibility = View.GONE
 
-            holder.tvReceived.text = message.text
             holder.tvReceivedTime.text = formatTime(message.timestamp)
+            bindMediaOrText(
+                isMedia = isMedia,
+                isVideo = message.type == "video",
+                mediaUrl = message.mediaUrl,
+                thumbnailUrl = message.mediaThumbnailUrl,
+                text = message.text,
+                mediaFrame = holder.receivedMediaFrame,
+                mediaImageView = holder.ivReceivedMedia,
+                playIcon = holder.ivReceivedPlayIcon,
+                textView = holder.tvReceived
+            )
 
             if (message.replyToText != null) {
                 holder.receivedReplyQuote.visibility = View.VISIBLE
                 holder.tvReceivedReplySender.text =
                     if (message.replyToSenderId == currentUserId) "You" else "Them"
                 holder.tvReceivedReplyText.text = message.replyToText
+                holder.receivedReplyQuote.setOnClickListener {
+                    message.replyToMessageId?.let { id -> onReplyQuoteTap(id) }
+                }
             } else {
                 holder.receivedReplyQuote.visibility = View.GONE
+                holder.receivedReplyQuote.setOnClickListener(null)
             }
 
             if (reactionEmoji != null) {
@@ -217,6 +264,50 @@ class MessageAdapter(
                 onMessageLongPress(message, holder.receivedBubble)
                 true
             }
+            holder.receivedMediaFrame.setOnClickListener {
+                if (isMedia) onMediaClick(message)
+            }
+        }
+    }
+
+    /**
+     * Shows either the media frame (image/video thumbnail + optional play icon)
+     * or the plain text view, hiding whichever one isn't needed. For videos,
+     * Glide loads the thumbnail URL — falling back to the full mediaUrl if no
+     * thumbnail was generated, so old/edge-case messages still show something.
+     */
+    private fun bindMediaOrText(
+        isMedia: Boolean,
+        isVideo: Boolean,
+        mediaUrl: String?,
+        thumbnailUrl: String?,
+        text: String,
+        mediaFrame: FrameLayout,
+        mediaImageView: ShapeableImageView,
+        playIcon: ImageView,
+        textView: TextView
+    ) {
+        if (isMedia) {
+            mediaFrame.visibility = View.VISIBLE
+            textView.visibility = View.GONE
+
+            val imageToLoad = if (isVideo) (thumbnailUrl ?: mediaUrl) else mediaUrl
+            Glide.with(mediaImageView.context)
+                .load(imageToLoad)
+                .centerCrop()
+                .into(mediaImageView)
+
+            playIcon.visibility = if (isVideo) View.VISIBLE else View.GONE
+        } else {
+            mediaFrame.visibility = View.GONE
+            textView.visibility = View.VISIBLE
+            textView.text = text
+        }
+    }
+
+    fun findPositionByMessageId(messageId: String): Int {
+        return items.indexOfFirst {
+            it is ListItem.MessageItem && it.message.messageId == messageId
         }
     }
 

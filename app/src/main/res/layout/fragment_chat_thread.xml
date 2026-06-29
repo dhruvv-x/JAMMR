@@ -133,6 +133,16 @@
 
     </LinearLayout>
 
+    <!-- Upload progress bar, shown while a photo/video is uploading -->
+    <ProgressBar
+        android:id="@+id/uploadProgressBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:max="100"
+        android:progressTint="#FF6B35"
+        android:visibility="gone" />
+
     <!-- Input bar -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -140,16 +150,25 @@
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:background="#1A1A1A"
-        android:paddingStart="12dp"
+        android:paddingStart="8dp"
         android:paddingEnd="12dp"
         android:paddingTop="8dp"
         android:paddingBottom="8dp">
+
+        <ImageButton
+            android:id="@+id/btnAttach"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_attach"
+            android:contentDescription="Attach photo or video" />
 
         <EditText
             android:id="@+id/etMessage"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:layout_marginStart="4dp"
             android:background="#2A2A2A"
             android:textColor="#FFFFFF"
             android:textColorHint="#888888"

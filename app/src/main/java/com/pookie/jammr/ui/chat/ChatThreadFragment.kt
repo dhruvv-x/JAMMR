@@ -18,7 +18,11 @@ import android.widget.PopupWindow
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import android.widget.ImageView
+import android.widget.LinearLayout
 import androidx.activity.result.contract.ActivityResultContracts
+import com.bumptech.glide.Glide
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
@@ -64,8 +68,8 @@ class ChatThreadFragment : Fragment() {
     // Modern system photo/video picker — no storage permission needed at all,
     // since it runs as a separate trusted system process and only hands back
     // a content:// Uri for the one item the user picked.
-    private val pickMedia = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) handlePickedMedia(uri)
+    private val pickMedia = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(9)) { uris ->
+        if (uris.isNotEmpty()) showMediaPreview(uris)
     }
 
     override fun onCreateView(
@@ -108,8 +112,7 @@ class ChatThreadFragment : Fragment() {
             messages = emptyList(),
             currentUserId = uid,
             onMessageLongPress = { message, anchorView -> showMessageActionsPopup(message, anchorView, uid) },
-            onMediaClick = { message -> openMediaViewer(message) },
-            onReplyQuoteTap = { replyToMessageId -> scrollToMessage(replyToMessageId) }
+            onMediaClick = { message -> openMediaViewer(message) }
         )
         rvMessages.layoutManager = LinearLayoutManager(requireContext()).also {
             it.stackFromEnd = true
@@ -180,16 +183,48 @@ class ChatThreadFragment : Fragment() {
      * the full video just to render its bubble), then hands off to the
      * ViewModel to upload + send.
      */
-    private fun handlePickedMedia(uri: Uri) {
-        val uid = currentUserId ?: return
-        val mimeType = requireContext().contentResolver.getType(uri) ?: ""
-        val isVideo = mimeType.startsWith("video")
+    private fun showMediaPreview(uris: List<Uri>) {
+        val dialog = BottomSheetDialog(requireContext())
+        val sheetView = LayoutInflater.from(requireContext()).inflate(R.layout.fragment_media_preview, null)
+        dialog.setContentView(sheetView)
 
-        if (isVideo) {
-            val thumbnailBytes = extractVideoThumbnailBytes(uri)
-            chatViewModel.sendMediaMessage(uid, uri, isVideo = true, videoThumbnailBytes = thumbnailBytes, context = requireContext().applicationContext)
-        } else {
-            chatViewModel.sendMediaMessage(uid, uri, isVideo = false, videoThumbnailBytes = null, context = requireContext().applicationContext)
+        val container = sheetView.findViewById<LinearLayout>(R.id.previewContainer)
+        val tvCount = sheetView.findViewById<TextView>(R.id.tvMediaCount)
+        val btnSend = sheetView.findViewById<android.widget.Button>(R.id.btnSendMedia)
+
+        tvCount.text = if (uris.size == 1) "1 item selected" else "${uris.size} items selected"
+
+        val size = resources.getDimensionPixelSize(android.R.dimen.thumbnail_height).coerceAtLeast(200)
+        uris.forEach { uri ->
+            val iv = ImageView(requireContext()).apply {
+                layoutParams = LinearLayout.LayoutParams(size, size).also {
+                    it.marginEnd = 8
+                }
+                scaleType = ImageView.ScaleType.CENTER_CROP
+            }
+            Glide.with(this).load(uri).centerCrop().into(iv)
+            container.addView(iv)
+        }
+
+        btnSend.setOnClickListener {
+            dialog.dismiss()
+            sendPickedMediaList(uris)
+        }
+
+        dialog.show()
+    }
+
+    private fun sendPickedMediaList(uris: List<Uri>) {
+        val uid = currentUserId ?: return
+        uris.forEach { uri ->
+            val mimeType = requireContext().contentResolver.getType(uri) ?: ""
+            val isVideo = mimeType.startsWith("video")
+            if (isVideo) {
+                val thumbnailBytes = extractVideoThumbnailBytes(uri)
+                chatViewModel.sendMediaMessage(uid, uri, isVideo = true, videoThumbnailBytes = thumbnailBytes, context = requireContext().applicationContext)
+            } else {
+                chatViewModel.sendMediaMessage(uid, uri, isVideo = false, videoThumbnailBytes = null, context = requireContext().applicationContext)
+            }
         }
     }
 
@@ -240,19 +275,6 @@ class ChatThreadFragment : Fragment() {
     }
 
     /** Opens the full-screen viewer for a tapped image/video bubble. */
-
-    private fun scrollToMessage(messageId: String) {
-        val position = adapter.findPositionByMessageId(messageId)
-        if (position == -1) return
-        rvMessages.scrollToPosition(position)
-        rvMessages.post {
-            val targetView = (rvMessages.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager)
-                ?.findViewByPosition(position) ?: return@post
-            targetView.setBackgroundColor(android.graphics.Color.parseColor("#33FFAC6E"))
-            targetView.postDelayed({ targetView.setBackgroundColor(android.graphics.Color.TRANSPARENT) }, 800)
-        }
-    }
-
     private fun openMediaViewer(message: Message) {
         val url = message.mediaUrl ?: return
         val bundle = Bundle().apply {

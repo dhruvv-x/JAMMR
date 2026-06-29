@@ -119,6 +119,7 @@ class ChatThreadFragment : Fragment() {
         adapter = MessageAdapter(
             messages = emptyList(),
             currentUserId = uid,
+            otherUserName = otherUserName,
             onMessageLongPress = { message, anchorView -> showMessageActionsPopup(message, anchorView, uid) },
             onMediaClick = { message -> openMediaViewer(message) },
             onSongPreviewClick = { message -> handleSongPreview(message) },

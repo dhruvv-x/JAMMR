@@ -31,6 +31,7 @@ import java.util.Locale
 class MessageAdapter(
     private var messages: List<Message>,
     private val currentUserId: String,
+    private val otherUserName: String,
     private val onMessageLongPress: (message: Message, anchorView: View) -> Unit,
     private val onMediaClick: (message: Message) -> Unit,
     private val onSongPreviewClick: (message: Message) -> Unit = {},
@@ -294,7 +295,7 @@ class MessageAdapter(
     ) {
         if (message.replyToText != null) {
             quoteContainer.visibility = View.VISIBLE
-            tvSender.text = if (message.replyToSenderId == currentUserId) "You" else "Them"
+            tvSender.text = if (message.replyToSenderId == currentUserId) "You" else otherUserName
             tvText.text = message.replyToText
             quoteContainer.setOnClickListener {
                 message.replyToMessageId?.let { id -> onReplyQuoteTap(id) }

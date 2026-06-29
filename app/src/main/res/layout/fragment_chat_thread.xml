@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/chatThreadRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -7,7 +8,7 @@
     android:background="#0D0D0D"
     android:fitsSystemWindows="false">
 
-    <!-- Header -->
+    <!-- ── Header ─────────────────────────────────────────────────────────── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -16,10 +17,10 @@
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="56dp"
+            android:layout_height="60dp"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingStart="8dp"
+            android:paddingStart="4dp"
             android:paddingEnd="16dp">
 
             <ImageButton
@@ -30,12 +31,22 @@
                 android:src="@drawable/ic_back"
                 android:contentDescription="Back" />
 
-            <!-- Name + typing indicator stacked -->
+            <!-- Avatar -->
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/ivThreadAvatar"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="4dp"
+                android:scaleType="centerCrop"
+                app:shapeAppearance="@style/ShapeAppearance.Material3.Corner.Full"
+                android:src="@drawable/ic_person_placeholder" />
+
+            <!-- Name + typing indicator -->
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="12dp"
                 android:orientation="vertical">
 
                 <TextView
@@ -43,12 +54,11 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textColor="#FFFFFF"
-                    android:textSize="18sp"
+                    android:textSize="17sp"
                     android:textStyle="bold"
                     android:maxLines="1"
                     android:ellipsize="end" />
 
-                <!-- "typing..." shown below the name, hidden by default -->
                 <TextView
                     android:id="@+id/tvTypingIndicator"
                     android:layout_width="wrap_content"
@@ -65,7 +75,7 @@
 
     </LinearLayout>
 
-    <!-- Messages list -->
+    <!-- ── Messages list ──────────────────────────────────────────────────── -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rvMessages"
         android:layout_width="match_parent"
@@ -75,7 +85,7 @@
         android:paddingTop="8dp"
         android:paddingBottom="8dp" />
 
-    <!-- Reply preview bar -->
+    <!-- ── Reply preview bar ──────────────────────────────────────────────── -->
     <LinearLayout
         android:id="@+id/replyPreviewBar"
         android:layout_width="match_parent"
@@ -133,7 +143,7 @@
 
     </LinearLayout>
 
-    <!-- Upload progress bar, shown while a photo/video is uploading -->
+    <!-- ── Upload progress ────────────────────────────────────────────────── -->
     <ProgressBar
         android:id="@+id/uploadProgressBar"
         style="?android:attr/progressBarStyleHorizontal"
@@ -143,7 +153,7 @@
         android:progressTint="#FF6B35"
         android:visibility="gone" />
 
-    <!-- Input bar -->
+    <!-- ── Input bar ──────────────────────────────────────────────────────── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -155,40 +165,52 @@
         android:paddingTop="8dp"
         android:paddingBottom="8dp">
 
+        <!--
+            Attach button: visible when input is EMPTY.
+            Hidden (gone) once the user starts typing so the send button takes
+            its place — this matches the WhatsApp / Telegram interaction pattern.
+        -->
         <ImageButton
             android:id="@+id/btnAttach"
             android:layout_width="44dp"
             android:layout_height="44dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_attach"
-            android:contentDescription="Attach photo or video" />
+            android:contentDescription="Attach photo or video"
+            android:visibility="visible" />
 
         <EditText
             android:id="@+id/etMessage"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="4dp"
-            android:background="#2A2A2A"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/bg_input_rounded"
             android:textColor="#FFFFFF"
             android:textColorHint="#888888"
             android:hint="Message..."
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
             android:paddingTop="10dp"
             android:paddingBottom="10dp"
             android:inputType="textMultiLine|textCapSentences"
             android:maxLines="4"
             android:minLines="1" />
 
+        <!--
+            Send button: always present in the layout.
+            GONE when input is empty, VISIBLE when there is text.
+            Toggled in ChatThreadFragment via the TextWatcher.
+        -->
         <ImageButton
             android:id="@+id/btnSend"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="8dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:background="@drawable/ic_send_bg"
             android:src="@drawable/ic_send"
-            android:contentDescription="Send" />
+            android:contentDescription="Send"
+            android:visibility="gone" />
 
     </LinearLayout>
 

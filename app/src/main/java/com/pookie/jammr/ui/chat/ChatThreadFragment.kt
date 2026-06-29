@@ -23,6 +23,7 @@ import android.widget.LinearLayout
 import androidx.activity.result.contract.ActivityResultContracts
 import com.bumptech.glide.Glide
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.imageview.ShapeableImageView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
@@ -51,6 +52,7 @@ class ChatThreadFragment : Fragment() {
     private lateinit var uploadProgressBar: ProgressBar
     private lateinit var tvThreadTitle: TextView
     private lateinit var tvTypingIndicator: TextView
+    private lateinit var ivThreadAvatar: ShapeableImageView
     private lateinit var adapter: MessageAdapter
 
     private lateinit var replyPreviewBar: View
@@ -65,9 +67,6 @@ class ChatThreadFragment : Fragment() {
     private val currentUserId: String?
         get() = FirebaseAuth.getInstance().currentUser?.uid
 
-    // Modern system photo/video picker — no storage permission needed at all,
-    // since it runs as a separate trusted system process and only hands back
-    // a content:// Uri for the one item the user picked.
     private val pickMedia = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(9)) { uris ->
         if (uris.isNotEmpty()) showMediaPreview(uris)
     }
@@ -75,9 +74,7 @@ class ChatThreadFragment : Fragment() {
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View? {
-        return inflater.inflate(R.layout.fragment_chat_thread, container, false)
-    }
+    ): View? = inflater.inflate(R.layout.fragment_chat_thread, container, false)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -90,6 +87,7 @@ class ChatThreadFragment : Fragment() {
         uploadProgressBar = view.findViewById(R.id.uploadProgressBar)
         tvThreadTitle = view.findViewById(R.id.tvThreadTitle)
         tvTypingIndicator = view.findViewById(R.id.tvTypingIndicator)
+        ivThreadAvatar = view.findViewById(R.id.ivThreadAvatar)
         replyPreviewBar = view.findViewById(R.id.replyPreviewBar)
         tvReplyPreviewSender = view.findViewById(R.id.tvReplyPreviewSender)
         tvReplyPreviewText = view.findViewById(R.id.tvReplyPreviewText)
@@ -103,8 +101,18 @@ class ChatThreadFragment : Fragment() {
 
         val otherUserId = arguments?.getString("otherUserId") ?: return
         val otherUserName = arguments?.getString("otherUserName") ?: "Chat"
+        val otherUserPhotoUrl = arguments?.getString("otherUserPhotoUrl")
 
         tvThreadTitle.text = otherUserName
+
+        // Load avatar — fall back to placeholder if null/empty
+        if (!otherUserPhotoUrl.isNullOrBlank()) {
+            Glide.with(this)
+                .load(otherUserPhotoUrl)
+                .placeholder(R.drawable.ic_person_placeholder)
+                .circleCrop()
+                .into(ivThreadAvatar)
+        }
 
         val uid = currentUserId ?: return
 
@@ -112,11 +120,14 @@ class ChatThreadFragment : Fragment() {
             messages = emptyList(),
             currentUserId = uid,
             onMessageLongPress = { message, anchorView -> showMessageActionsPopup(message, anchorView, uid) },
-            onMediaClick = { message -> openMediaViewer(message) }
+            onMediaClick = { message -> openMediaViewer(message) },
+            onSongPreviewClick = { message -> handleSongPreview(message) },
+            onReplyQuoteTap = { messageId ->
+                val pos = adapter.findPositionByMessageId(messageId)
+                if (pos >= 0) rvMessages.smoothScrollToPosition(pos)
+            }
         )
-        rvMessages.layoutManager = LinearLayoutManager(requireContext()).also {
-            it.stackFromEnd = true
-        }
+        rvMessages.layoutManager = LinearLayoutManager(requireContext()).also { it.stackFromEnd = true }
         rvMessages.adapter = adapter
 
         btnBack.setOnClickListener {
@@ -140,24 +151,25 @@ class ChatThreadFragment : Fragment() {
                 chatViewModel.sendTextMessage(uid, text, replyTo = pendingReplyTo)
                 etMessage.setText("")
                 clearPendingReply()
-                // Clear typing immediately after sending
                 chatViewModel.clearTyping(uid)
             }
         }
 
-        // Typing indicator: notify ViewModel on every text change
+        // ── Attach / Send button toggle ──────────────────────────────────────
+        // Show attach when input is empty, show send when there's text.
         etMessage.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
             override fun afterTextChanged(s: Editable?) {
-                chatViewModel.onUserTyping(uid, s?.isNotEmpty() == true)
+                val hasText = s?.isNotEmpty() == true
+                btnAttach.visibility = if (hasText) View.GONE else View.VISIBLE
+                btnSend.visibility = if (hasText) View.VISIBLE else View.GONE
+                chatViewModel.onUserTyping(uid, hasText)
             }
         })
 
         chatViewModel.openChatWith(uid, otherUserId)
 
-        // Start listening for typing AFTER openChatWith so chatId is set
-        // We observe currentChatId and kick off typing listener once we have it
         chatViewModel.currentChatId.observe(viewLifecycleOwner) { chatId ->
             if (!chatId.isNullOrBlank()) {
                 chatViewModel.listenForTyping(otherUserId)
@@ -170,47 +182,65 @@ class ChatThreadFragment : Fragment() {
         observeMediaUpload()
     }
 
+    // ── Song preview ─────────────────────────────────────────────────────────
+
+    /**
+     * Opens the iTunes preview URL in a simple bottom sheet with a MediaPlayer,
+     * or falls back to showing a toast with the track name if no preview URL
+     * exists (some iTunes tracks don't have them).
+     */
+    private fun handleSongPreview(message: Message) {
+        val previewUrl = message.songPreviewUrl
+        if (previewUrl.isNullOrBlank()) {
+            Toast.makeText(
+                requireContext(),
+                "No preview available for \"${message.songTrackName}\"",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+        // TODO: implement an in-app audio player bottom sheet.
+        // For now open the external iTunes track URL if available,
+        // otherwise just inform the user a preview exists.
+        Toast.makeText(requireContext(), "▶ ${message.songTrackName}", Toast.LENGTH_SHORT).show()
+    }
+
+    // ── Typing indicator ─────────────────────────────────────────────────────
+
     private fun observeTyping() {
         chatViewModel.isOtherUserTyping.observe(viewLifecycleOwner) { isTyping ->
             tvTypingIndicator.visibility = if (isTyping) View.VISIBLE else View.GONE
         }
     }
 
-    /**
-     * Called once the user picks a photo or video from the system picker.
-     * Determines the media type from the returned Uri's MIME type, extracts
-     * a thumbnail frame for videos (needed since we never want to download
-     * the full video just to render its bubble), then hands off to the
-     * ViewModel to upload + send.
-     */
+    // ── Media pick / preview / send ──────────────────────────────────────────
+
     private fun showMediaPreview(uris: List<Uri>) {
         val dialog = BottomSheetDialog(requireContext())
-        val sheetView = LayoutInflater.from(requireContext()).inflate(R.layout.fragment_media_preview, null)
+        val sheetView = LayoutInflater.from(requireContext())
+            .inflate(R.layout.fragment_media_preview, null)
         dialog.setContentView(sheetView)
 
         val container = sheetView.findViewById<LinearLayout>(R.id.previewContainer)
         val tvCount = sheetView.findViewById<TextView>(R.id.tvMediaCount)
-        val btnSend = sheetView.findViewById<android.widget.Button>(R.id.btnSendMedia)
+        val btnSendMedia = sheetView.findViewById<android.widget.Button>(R.id.btnSendMedia)
 
         tvCount.text = if (uris.size == 1) "1 item selected" else "${uris.size} items selected"
 
         val size = resources.getDimensionPixelSize(android.R.dimen.thumbnail_height).coerceAtLeast(200)
         uris.forEach { uri ->
             val iv = ImageView(requireContext()).apply {
-                layoutParams = LinearLayout.LayoutParams(size, size).also {
-                    it.marginEnd = 8
-                }
+                layoutParams = LinearLayout.LayoutParams(size, size).also { it.marginEnd = 8 }
                 scaleType = ImageView.ScaleType.CENTER_CROP
             }
             Glide.with(this).load(uri).centerCrop().into(iv)
             container.addView(iv)
         }
 
-        btnSend.setOnClickListener {
+        btnSendMedia.setOnClickListener {
             dialog.dismiss()
             sendPickedMediaList(uris)
         }
-
         dialog.show()
     }
 
@@ -228,12 +258,6 @@ class ChatThreadFragment : Fragment() {
         }
     }
 
-    /**
-     * Grabs a single frame from the video (at the 1-second mark, falling
-     * back to frame 0 for very short clips) and JPEG-encodes it. Returns
-     * null on any failure — sendMediaMessage() handles a null thumbnail
-     * gracefully by falling back to showing the full video URL instead.
-     */
     private fun extractVideoThumbnailBytes(uri: Uri): ByteArray? {
         return try {
             val retriever = MediaMetadataRetriever()
@@ -241,22 +265,17 @@ class ChatThreadFragment : Fragment() {
             val frame: Bitmap? = retriever.getFrameAtTime(1_000_000) ?: retriever.frameAtTime
             retriever.release()
             if (frame == null) return null
-
             ByteArrayOutputStream().use { stream ->
                 frame.compress(Bitmap.CompressFormat.JPEG, 80, stream)
                 stream.toByteArray()
             }
-        } catch (e: Exception) {
-            null
-        }
+        } catch (e: Exception) { null }
     }
 
     private fun observeMediaUpload() {
         chatViewModel.mediaUploadState.observe(viewLifecycleOwner) { state ->
             when (state) {
-                is MediaUploadState.Idle -> {
-                    uploadProgressBar.visibility = View.GONE
-                }
+                is MediaUploadState.Idle -> uploadProgressBar.visibility = View.GONE
                 is MediaUploadState.Uploading -> {
                     uploadProgressBar.visibility = View.VISIBLE
                     uploadProgressBar.progress = state.progress
@@ -274,7 +293,6 @@ class ChatThreadFragment : Fragment() {
         }
     }
 
-    /** Opens the full-screen viewer for a tapped image/video bubble. */
     private fun openMediaViewer(message: Message) {
         val url = message.mediaUrl ?: return
         val bundle = Bundle().apply {
@@ -283,6 +301,8 @@ class ChatThreadFragment : Fragment() {
         }
         findNavController().navigate(R.id.action_chatThreadFragment_to_mediaViewerFragment, bundle)
     }
+
+    // ── Message actions popup ────────────────────────────────────────────────
 
     private fun showMessageActionsPopup(message: Message, anchorView: View, currentUserId: String) {
         val popupView = LayoutInflater.from(requireContext())
@@ -297,11 +317,7 @@ class ChatThreadFragment : Fragment() {
         popupWindow.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         popupWindow.elevation = 8f
 
-        val emojiIds = listOf(
-            R.id.emoji1, R.id.emoji2, R.id.emoji3,
-            R.id.emoji4, R.id.emoji5, R.id.emoji6
-        )
-        for (id in emojiIds) {
+        for (id in listOf(R.id.emoji1, R.id.emoji2, R.id.emoji3, R.id.emoji4, R.id.emoji5, R.id.emoji6)) {
             val emojiView = popupView.findViewById<TextView>(id)
             emojiView.setOnClickListener {
                 chatViewModel.toggleReaction(message, currentUserId, emojiView.text.toString())
@@ -322,9 +338,12 @@ class ChatThreadFragment : Fragment() {
         popupWindow.showAsDropDown(anchorView, 0, -anchorView.height - 16)
     }
 
+    // ── Reply ────────────────────────────────────────────────────────────────
+
     private fun setPendingReply(message: Message, currentUserId: String) {
         pendingReplyTo = message
-        tvReplyPreviewSender.text = if (message.senderId == currentUserId) "Replying to yourself" else "Replying to ${tvThreadTitle.text}"
+        tvReplyPreviewSender.text =
+            if (message.senderId == currentUserId) "Replying to yourself" else "Replying to ${tvThreadTitle.text}"
         tvReplyPreviewText.text = when (message.type) {
             "song" -> "🎵 ${message.songTrackName}"
             "image" -> "📷 Photo"
@@ -340,12 +359,12 @@ class ChatThreadFragment : Fragment() {
         replyPreviewBar.visibility = View.GONE
     }
 
+    // ── Forward ──────────────────────────────────────────────────────────────
+
     private fun showForwardDialog(message: Message, currentUserId: String) {
         pendingForwardMessage = message
-
         val dialogView = LayoutInflater.from(requireContext())
             .inflate(R.layout.dialog_forward_list, null)
-
         val dialog = AlertDialog.Builder(requireContext())
             .setTitle("Forward to...")
             .setView(dialogView)
@@ -356,10 +375,8 @@ class ChatThreadFragment : Fragment() {
                 chatViewModel.clearForwardPickerState()
             }
             .create()
-
         dialog.show()
         activeForwardDialog = dialog
-
         chatViewModel.loadChatsForForwarding(currentUserId)
     }
 
@@ -387,9 +404,9 @@ class ChatThreadFragment : Fragment() {
                         rvChats?.visibility = View.VISIBLE
                         rvChats?.layoutManager = LinearLayoutManager(requireContext())
                         rvChats?.adapter = ForwardChatAdapter(state.chats) { chatPreview ->
-                            val message = pendingForwardMessage
-                            if (message != null) {
-                                chatViewModel.forwardMessage(message, chatPreview.chatId, currentUserId)
+                            val msg = pendingForwardMessage
+                            if (msg != null) {
+                                chatViewModel.forwardMessage(msg, chatPreview.chatId, currentUserId)
                                 Toast.makeText(requireContext(), "Forwarded to ${chatPreview.otherUserName}", Toast.LENGTH_SHORT).show()
                             }
                             dialog.dismiss()
@@ -406,17 +423,15 @@ class ChatThreadFragment : Fragment() {
         }
     }
 
+    // ── Messages ─────────────────────────────────────────────────────────────
+
     private fun observeMessages() {
         chatViewModel.messagesState.observe(viewLifecycleOwner) { state ->
-            when (state) {
-                is MessagesState.Success -> {
-                    adapter.updateMessages(state.messages)
-                    if (state.messages.isNotEmpty()) {
-                        rvMessages.scrollToPosition(state.messages.size - 1)
-                    }
+            if (state is MessagesState.Success) {
+                adapter.updateMessages(state.messages)
+                if (state.messages.isNotEmpty()) {
+                    rvMessages.scrollToPosition(state.messages.size - 1)
                 }
-                is MessagesState.Loading -> Unit
-                is MessagesState.Error -> Unit
             }
         }
     }

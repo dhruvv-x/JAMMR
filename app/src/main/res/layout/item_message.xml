@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    item_message.xml
+    Changes vs original:
+      1. Added sentSongCard / receivedSongCard FrameLayout slots so the adapter
+         can inflate item_message_song.xml into them for type=="song".
+      2. Reaction badge now shows grouped emoji + count ("❤️ 3") via a
+         horizontal LinearLayout instead of a single TextView.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -9,7 +17,7 @@
     android:paddingTop="4dp"
     android:paddingBottom="4dp">
 
-    <!-- ============== SENT (right side) ============== -->
+    <!-- ══════════════ SENT (right side) ══════════════ -->
     <LinearLayout
         android:id="@+id/sentContainer"
         android:layout_width="wrap_content"
@@ -61,8 +69,14 @@
 
             </LinearLayout>
 
-            <!-- Media: photo or video. Same ImageView renders both — for
-                 video we load the thumbnail and overlay a play button. -->
+            <!-- Song card slot (type == "song") -->
+            <FrameLayout
+                android:id="@+id/sentSongCard"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:visibility="gone" />
+
+            <!-- Media: photo or video -->
             <FrameLayout
                 android:id="@+id/sentMediaFrame"
                 android:layout_width="220dp"
@@ -87,6 +101,7 @@
 
             </FrameLayout>
 
+            <!-- Plain text -->
             <TextView
                 android:id="@+id/tvSent"
                 android:layout_width="wrap_content"
@@ -98,7 +113,7 @@
                 android:paddingTop="8dp"
                 android:paddingBottom="2dp" />
 
-            <!-- Timestamp inside bubble, bottom-right -->
+            <!-- Timestamp -->
             <TextView
                 android:id="@+id/tvSentTime"
                 android:layout_width="wrap_content"
@@ -113,25 +128,43 @@
 
         </LinearLayout>
 
-        <!-- Reaction badge -->
-        <TextView
-            android:id="@+id/tvSentReaction"
+        <!-- Grouped reaction badge (emoji + count) -->
+        <LinearLayout
+            android:id="@+id/sentReactionBadge"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="end"
             android:layout_marginTop="-10dp"
             android:layout_marginEnd="6dp"
             android:background="@drawable/bg_reaction_badge"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp"
+            android:paddingStart="7dp"
+            android:paddingEnd="7dp"
             android:paddingTop="2dp"
             android:paddingBottom="2dp"
-            android:textSize="13sp"
-            android:visibility="gone" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvSentReactionEmojis"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/tvSentReactionCount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="3dp"
+                android:textColor="#CCCCCC"
+                android:textSize="11sp"
+                android:visibility="gone" />
+
+        </LinearLayout>
 
     </LinearLayout>
 
-    <!-- ============== RECEIVED (left side) ============== -->
+    <!-- ══════════════ RECEIVED (left side) ══════════════ -->
     <LinearLayout
         android:id="@+id/receivedContainer"
         android:layout_width="wrap_content"
@@ -148,6 +181,7 @@
             android:orientation="vertical"
             android:background="@drawable/bg_bubble_received">
 
+            <!-- Reply quote preview -->
             <LinearLayout
                 android:id="@+id/receivedReplyQuote"
                 android:layout_width="match_parent"
@@ -182,6 +216,14 @@
 
             </LinearLayout>
 
+            <!-- Song card slot (type == "song") -->
+            <FrameLayout
+                android:id="@+id/receivedSongCard"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:visibility="gone" />
+
+            <!-- Media -->
             <FrameLayout
                 android:id="@+id/receivedMediaFrame"
                 android:layout_width="220dp"
@@ -206,6 +248,7 @@
 
             </FrameLayout>
 
+            <!-- Plain text -->
             <TextView
                 android:id="@+id/tvReceived"
                 android:layout_width="wrap_content"
@@ -217,7 +260,7 @@
                 android:paddingTop="8dp"
                 android:paddingBottom="2dp" />
 
-            <!-- Timestamp inside bubble, bottom-right -->
+            <!-- Timestamp -->
             <TextView
                 android:id="@+id/tvReceivedTime"
                 android:layout_width="wrap_content"
@@ -232,20 +275,39 @@
 
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/tvReceivedReaction"
+        <!-- Grouped reaction badge -->
+        <LinearLayout
+            android:id="@+id/receivedReactionBadge"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="start"
             android:layout_marginTop="-10dp"
             android:layout_marginStart="6dp"
             android:background="@drawable/bg_reaction_badge"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp"
+            android:paddingStart="7dp"
+            android:paddingEnd="7dp"
             android:paddingTop="2dp"
             android:paddingBottom="2dp"
-            android:textSize="13sp"
-            android:visibility="gone" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvReceivedReactionEmojis"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/tvReceivedReactionCount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="3dp"
+                android:textColor="#CCCCCC"
+                android:textSize="11sp"
+                android:visibility="gone" />
+
+        </LinearLayout>
 
     </LinearLayout>
 

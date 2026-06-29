@@ -5,7 +5,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.google.android.material.imageview.ShapeableImageView
@@ -17,27 +19,21 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Renders the message list, including:
- * - Date separators ("Today", "Yesterday", "Dec 25") between days
- * - Reply quote preview (if this message was sent as a reply to another one)
- * - A single reaction emoji badge (if anyone has reacted)
- * - Timestamp inside the bubble (HH:mm)
- * - Photo/video media (image fills the bubble; video shows its thumbnail
- *   with a play icon overlay)
+ * Renders the message list. Changes from the original:
  *
- * Uses two view types: VIEW_TYPE_DATE_SEPARATOR and VIEW_TYPE_MESSAGE.
- * The adapter builds a flat list of [ListItem] (either a DateHeader or a
- * MessageItem) from the raw message list every time updateMessages() is called.
- *
- * Long-pressing a bubble triggers [onMessageLongPress] so the Fragment can
- * show the reaction/reply popup anchored to that bubble. Tapping a media
- * bubble triggers [onMediaClick] so the Fragment can open a full-screen viewer.
+ *  1. DiffUtil replaces notifyDataSetChanged() — no more full-list flicker
+ *     on every Firestore snapshot.
+ *  2. type == "song" inflates item_message_song.xml into sentSongCard /
+ *     receivedSongCard and wires up artwork + preview playback.
+ *  3. Reactions now show ALL unique emojis from the map, de-duplicated and
+ *     joined, plus a count badge when there are 2+ reactions.
  */
 class MessageAdapter(
     private var messages: List<Message>,
     private val currentUserId: String,
     private val onMessageLongPress: (message: Message, anchorView: View) -> Unit,
     private val onMediaClick: (message: Message) -> Unit,
+    private val onSongPreviewClick: (message: Message) -> Unit = {},
     private val onReplyQuoteTap: (replyToMessageId: String) -> Unit = {}
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
@@ -60,16 +56,11 @@ class MessageAdapter(
     private val timeFormatter = SimpleDateFormat("HH:mm", Locale.getDefault())
     private val dateFormatter = SimpleDateFormat("MMM d", Locale.getDefault())
 
-    private fun formatTime(timestamp: Long): String =
-        timeFormatter.format(Date(timestamp))
+    private fun formatTime(timestamp: Long): String = timeFormatter.format(Date(timestamp))
 
-    /**
-     * Returns "Today", "Yesterday", or "MMM d" (e.g. "Jun 14") for a timestamp.
-     */
     private fun formatDateLabel(timestamp: Long): String {
         val msgCal = Calendar.getInstance().apply { timeInMillis = timestamp }
         val todayCal = Calendar.getInstance()
-
         return when {
             isSameDay(msgCal, todayCal) -> "Today"
             isYesterday(msgCal, todayCal) -> "Yesterday"
@@ -77,7 +68,7 @@ class MessageAdapter(
         }
     }
 
-    private fun isSameDay(a: Calendar, b: Calendar): Boolean =
+    private fun isSameDay(a: Calendar, b: Calendar) =
         a.get(Calendar.YEAR) == b.get(Calendar.YEAR) &&
                 a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)
 
@@ -91,27 +82,39 @@ class MessageAdapter(
 
     // ── Build flat item list ─────────────────────────────────────────────────
 
-    /**
-     * Inserts a DateHeader before the first message of each new calendar day.
-     */
     private fun buildItems(msgs: List<Message>): List<ListItem> {
         val result = mutableListOf<ListItem>()
-        var lastDayOfYear = -1
-        var lastYear = -1
-
+        var lastDay = -1; var lastYear = -1
         for (msg in msgs) {
             val cal = Calendar.getInstance().apply { timeInMillis = msg.timestamp }
-            val day = cal.get(Calendar.DAY_OF_YEAR)
-            val year = cal.get(Calendar.YEAR)
-
-            if (day != lastDayOfYear || year != lastYear) {
+            val day = cal.get(Calendar.DAY_OF_YEAR); val year = cal.get(Calendar.YEAR)
+            if (day != lastDay || year != lastYear) {
                 result.add(ListItem.DateHeader(formatDateLabel(msg.timestamp)))
-                lastDayOfYear = day
-                lastYear = year
+                lastDay = day; lastYear = year
             }
             result.add(ListItem.MessageItem(msg))
         }
         return result
+    }
+
+    // ── DiffUtil callback ────────────────────────────────────────────────────
+
+    private class ItemDiff(
+        private val old: List<ListItem>,
+        private val new: List<ListItem>
+    ) : DiffUtil.Callback() {
+        override fun getOldListSize() = old.size
+        override fun getNewListSize() = new.size
+        override fun areItemsTheSame(o: Int, n: Int): Boolean {
+            val a = old[o]; val b = new[n]
+            return when {
+                a is ListItem.DateHeader && b is ListItem.DateHeader -> a.label == b.label
+                a is ListItem.MessageItem && b is ListItem.MessageItem ->
+                    a.message.messageId == b.message.messageId
+                else -> false
+            }
+        }
+        override fun areContentsTheSame(o: Int, n: Int) = old[o] == new[n]
     }
 
     // ── ViewHolders ──────────────────────────────────────────────────────────
@@ -121,6 +124,7 @@ class MessageAdapter(
     }
 
     inner class MessageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        // Sent
         val sentContainer: View = view.findViewById(R.id.sentContainer)
         val sentBubble: View = view.findViewById(R.id.sentBubble)
         val tvSent: TextView = view.findViewById(R.id.tvSent)
@@ -128,11 +132,15 @@ class MessageAdapter(
         val sentReplyQuote: View = view.findViewById(R.id.sentReplyQuote)
         val tvSentReplySender: TextView = view.findViewById(R.id.tvSentReplySender)
         val tvSentReplyText: TextView = view.findViewById(R.id.tvSentReplyText)
-        val tvSentReaction: TextView = view.findViewById(R.id.tvSentReaction)
+        val sentReactionBadge: LinearLayout = view.findViewById(R.id.sentReactionBadge)
+        val tvSentReactionEmojis: TextView = view.findViewById(R.id.tvSentReactionEmojis)
+        val tvSentReactionCount: TextView = view.findViewById(R.id.tvSentReactionCount)
         val sentMediaFrame: FrameLayout = view.findViewById(R.id.sentMediaFrame)
         val ivSentMedia: ShapeableImageView = view.findViewById(R.id.ivSentMedia)
         val ivSentPlayIcon: ImageView = view.findViewById(R.id.ivSentPlayIcon)
+        val sentSongCard: FrameLayout = view.findViewById(R.id.sentSongCard)
 
+        // Received
         val receivedContainer: View = view.findViewById(R.id.receivedContainer)
         val receivedBubble: View = view.findViewById(R.id.receivedBubble)
         val tvReceived: TextView = view.findViewById(R.id.tvReceived)
@@ -140,15 +148,18 @@ class MessageAdapter(
         val receivedReplyQuote: View = view.findViewById(R.id.receivedReplyQuote)
         val tvReceivedReplySender: TextView = view.findViewById(R.id.tvReceivedReplySender)
         val tvReceivedReplyText: TextView = view.findViewById(R.id.tvReceivedReplyText)
-        val tvReceivedReaction: TextView = view.findViewById(R.id.tvReceivedReaction)
+        val receivedReactionBadge: LinearLayout = view.findViewById(R.id.receivedReactionBadge)
+        val tvReceivedReactionEmojis: TextView = view.findViewById(R.id.tvReceivedReactionEmojis)
+        val tvReceivedReactionCount: TextView = view.findViewById(R.id.tvReceivedReactionCount)
         val receivedMediaFrame: FrameLayout = view.findViewById(R.id.receivedMediaFrame)
         val ivReceivedMedia: ShapeableImageView = view.findViewById(R.id.ivReceivedMedia)
         val ivReceivedPlayIcon: ImageView = view.findViewById(R.id.ivReceivedPlayIcon)
+        val receivedSongCard: FrameLayout = view.findViewById(R.id.receivedSongCard)
     }
 
     // ── Adapter overrides ────────────────────────────────────────────────────
 
-    override fun getItemViewType(position: Int): Int = when (items[position]) {
+    override fun getItemViewType(position: Int) = when (items[position]) {
         is ListItem.DateHeader -> VIEW_TYPE_DATE_SEPARATOR
         is ListItem.MessageItem -> VIEW_TYPE_MESSAGE
     }
@@ -174,146 +185,165 @@ class MessageAdapter(
 
     override fun getItemCount() = items.size
 
+    // ── Bind ─────────────────────────────────────────────────────────────────
+
     private fun bindMessage(holder: MessageViewHolder, message: Message) {
         val isSent = message.senderId == currentUserId
-        val reactionEmoji = message.reactions.values.firstOrNull()
-        val isMedia = message.type == "image" || message.type == "video"
 
         if (isSent) {
             holder.sentContainer.visibility = View.VISIBLE
             holder.receivedContainer.visibility = View.GONE
-
             holder.tvSentTime.text = formatTime(message.timestamp)
-            bindMediaOrText(
-                isMedia = isMedia,
-                isVideo = message.type == "video",
-                mediaUrl = message.mediaUrl,
-                thumbnailUrl = message.mediaThumbnailUrl,
-                text = message.text,
+            bindContent(
+                message = message,
+                isSent = true,
+                textView = holder.tvSent,
                 mediaFrame = holder.sentMediaFrame,
                 mediaImageView = holder.ivSentMedia,
                 playIcon = holder.ivSentPlayIcon,
-                textView = holder.tvSent
+                songCardSlot = holder.sentSongCard
             )
-
-            if (message.replyToText != null) {
-                holder.sentReplyQuote.visibility = View.VISIBLE
-                holder.tvSentReplySender.text =
-                    if (message.replyToSenderId == currentUserId) "You" else "Them"
-                holder.tvSentReplyText.text = message.replyToText
-                holder.sentReplyQuote.setOnClickListener {
-                    message.replyToMessageId?.let { id -> onReplyQuoteTap(id) }
-                }
-            } else {
-                holder.sentReplyQuote.visibility = View.GONE
-                holder.sentReplyQuote.setOnClickListener(null)
-            }
-
-            if (reactionEmoji != null) {
-                holder.tvSentReaction.visibility = View.VISIBLE
-                holder.tvSentReaction.text = reactionEmoji
-            } else {
-                holder.tvSentReaction.visibility = View.GONE
-            }
-
-            holder.sentBubble.setOnLongClickListener {
-                onMessageLongPress(message, holder.sentBubble)
-                true
-            }
-            holder.sentMediaFrame.setOnClickListener {
-                if (isMedia) onMediaClick(message)
-            }
+            bindReplyQuote(message, holder.sentReplyQuote, holder.tvSentReplySender, holder.tvSentReplyText)
+            bindReactions(message.reactions, holder.sentReactionBadge, holder.tvSentReactionEmojis, holder.tvSentReactionCount)
+            holder.sentBubble.setOnLongClickListener { onMessageLongPress(message, holder.sentBubble); true }
+            holder.sentMediaFrame.setOnClickListener { onMediaClick(message) }
         } else {
             holder.receivedContainer.visibility = View.VISIBLE
             holder.sentContainer.visibility = View.GONE
-
             holder.tvReceivedTime.text = formatTime(message.timestamp)
-            bindMediaOrText(
-                isMedia = isMedia,
-                isVideo = message.type == "video",
-                mediaUrl = message.mediaUrl,
-                thumbnailUrl = message.mediaThumbnailUrl,
-                text = message.text,
+            bindContent(
+                message = message,
+                isSent = false,
+                textView = holder.tvReceived,
                 mediaFrame = holder.receivedMediaFrame,
                 mediaImageView = holder.ivReceivedMedia,
                 playIcon = holder.ivReceivedPlayIcon,
-                textView = holder.tvReceived
+                songCardSlot = holder.receivedSongCard
             )
+            bindReplyQuote(message, holder.receivedReplyQuote, holder.tvReceivedReplySender, holder.tvReceivedReplyText)
+            bindReactions(message.reactions, holder.receivedReactionBadge, holder.tvReceivedReactionEmojis, holder.tvReceivedReactionCount)
+            holder.receivedBubble.setOnLongClickListener { onMessageLongPress(message, holder.receivedBubble); true }
+            holder.receivedMediaFrame.setOnClickListener { onMediaClick(message) }
+        }
+    }
 
-            if (message.replyToText != null) {
-                holder.receivedReplyQuote.visibility = View.VISIBLE
-                holder.tvReceivedReplySender.text =
-                    if (message.replyToSenderId == currentUserId) "You" else "Them"
-                holder.tvReceivedReplyText.text = message.replyToText
-                holder.receivedReplyQuote.setOnClickListener {
-                    message.replyToMessageId?.let { id -> onReplyQuoteTap(id) }
+    private fun bindContent(
+        message: Message,
+        isSent: Boolean,
+        textView: TextView,
+        mediaFrame: FrameLayout,
+        mediaImageView: ShapeableImageView,
+        playIcon: ImageView,
+        songCardSlot: FrameLayout
+    ) {
+        // Reset all content slots first
+        textView.visibility = View.GONE
+        mediaFrame.visibility = View.GONE
+        songCardSlot.visibility = View.GONE
+
+        when (message.type) {
+            "song" -> {
+                songCardSlot.visibility = View.VISIBLE
+                // Inflate the song card if not already inflated for this slot
+                if (songCardSlot.childCount == 0) {
+                    LayoutInflater.from(songCardSlot.context)
+                        .inflate(R.layout.item_message_song, songCardSlot, true)
                 }
-            } else {
-                holder.receivedReplyQuote.visibility = View.GONE
-                holder.receivedReplyQuote.setOnClickListener(null)
-            }
+                val cardView = songCardSlot.getChildAt(0)
+                val ivArtwork = cardView.findViewById<ShapeableImageView>(R.id.ivSongArtwork)
+                val tvTrack = cardView.findViewById<TextView>(R.id.tvSongTrackName)
+                val tvArtist = cardView.findViewById<TextView>(R.id.tvSongArtistName)
+                val ivPlay = cardView.findViewById<ImageView>(R.id.ivSongPlayBtn)
 
-            if (reactionEmoji != null) {
-                holder.tvReceivedReaction.visibility = View.VISIBLE
-                holder.tvReceivedReaction.text = reactionEmoji
-            } else {
-                holder.tvReceivedReaction.visibility = View.GONE
-            }
+                tvTrack.text = message.songTrackName ?: "Unknown track"
+                tvArtist.text = message.songArtistName ?: ""
+                Glide.with(ivArtwork.context)
+                    .load(message.songArtworkUrl)
+                    .placeholder(R.drawable.ic_music_note)
+                    .centerCrop()
+                    .into(ivArtwork)
 
-            holder.receivedBubble.setOnLongClickListener {
-                onMessageLongPress(message, holder.receivedBubble)
-                true
+                cardView.setOnClickListener { onSongPreviewClick(message) }
+                ivPlay.setOnClickListener { onSongPreviewClick(message) }
             }
-            holder.receivedMediaFrame.setOnClickListener {
-                if (isMedia) onMediaClick(message)
+            "image", "video" -> {
+                mediaFrame.visibility = View.VISIBLE
+                val imageToLoad = if (message.type == "video") {
+                    message.mediaThumbnailUrl ?: message.mediaUrl
+                } else {
+                    message.mediaUrl
+                }
+                Glide.with(mediaImageView.context)
+                    .load(imageToLoad)
+                    .centerCrop()
+                    .into(mediaImageView)
+                playIcon.visibility = if (message.type == "video") View.VISIBLE else View.GONE
             }
+            else -> {
+                textView.visibility = View.VISIBLE
+                textView.text = message.text
+            }
+        }
+    }
+
+    private fun bindReplyQuote(
+        message: Message,
+        quoteContainer: View,
+        tvSender: TextView,
+        tvText: TextView
+    ) {
+        if (message.replyToText != null) {
+            quoteContainer.visibility = View.VISIBLE
+            tvSender.text = if (message.replyToSenderId == currentUserId) "You" else "Them"
+            tvText.text = message.replyToText
+            quoteContainer.setOnClickListener {
+                message.replyToMessageId?.let { id -> onReplyQuoteTap(id) }
+            }
+        } else {
+            quoteContainer.visibility = View.GONE
+            quoteContainer.setOnClickListener(null)
         }
     }
 
     /**
-     * Shows either the media frame (image/video thumbnail + optional play icon)
-     * or the plain text view, hiding whichever one isn't needed. For videos,
-     * Glide loads the thumbnail URL — falling back to the full mediaUrl if no
-     * thumbnail was generated, so old/edge-case messages still show something.
+     * Shows grouped reactions: unique emojis joined together ("❤️😂") and a
+     * count label when there are 2 or more reactions ("· 3").
+     * Hiding the badge entirely when the reactions map is empty.
      */
-    private fun bindMediaOrText(
-        isMedia: Boolean,
-        isVideo: Boolean,
-        mediaUrl: String?,
-        thumbnailUrl: String?,
-        text: String,
-        mediaFrame: FrameLayout,
-        mediaImageView: ShapeableImageView,
-        playIcon: ImageView,
-        textView: TextView
+    private fun bindReactions(
+        reactions: Map<String, String>,
+        badge: LinearLayout,
+        tvEmojis: TextView,
+        tvCount: TextView
     ) {
-        if (isMedia) {
-            mediaFrame.visibility = View.VISIBLE
-            textView.visibility = View.GONE
-
-            val imageToLoad = if (isVideo) (thumbnailUrl ?: mediaUrl) else mediaUrl
-            Glide.with(mediaImageView.context)
-                .load(imageToLoad)
-                .centerCrop()
-                .into(mediaImageView)
-
-            playIcon.visibility = if (isVideo) View.VISIBLE else View.GONE
+        if (reactions.isEmpty()) {
+            badge.visibility = View.GONE
+            return
+        }
+        badge.visibility = View.VISIBLE
+        // De-duplicate emojis while preserving insertion order
+        val uniqueEmojis = reactions.values.distinct()
+        tvEmojis.text = uniqueEmojis.joinToString("")
+        val total = reactions.size
+        if (total > 1) {
+            tvCount.visibility = View.VISIBLE
+            tvCount.text = "· $total"
         } else {
-            mediaFrame.visibility = View.GONE
-            textView.visibility = View.VISIBLE
-            textView.text = text
+            tvCount.visibility = View.GONE
         }
     }
 
-    fun findPositionByMessageId(messageId: String): Int {
-        return items.indexOfFirst {
-            it is ListItem.MessageItem && it.message.messageId == messageId
-        }
-    }
+    // ── Public API ───────────────────────────────────────────────────────────
 
+    fun findPositionByMessageId(messageId: String): Int =
+        items.indexOfFirst { it is ListItem.MessageItem && it.message.messageId == messageId }
+
+    /** DiffUtil-powered update — no full rebind, no flicker. */
     fun updateMessages(newMessages: List<Message>) {
+        val newItems = buildItems(newMessages)
+        val diff = DiffUtil.calculateDiff(ItemDiff(items, newItems))
         messages = newMessages
-        items = buildItems(newMessages)
-        notifyDataSetChanged()
+        items = newItems
+        diff.dispatchUpdatesTo(this)
     }
 }
